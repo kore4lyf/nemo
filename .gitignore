@@ -2,3 +2,8 @@ node_modules/
 dist/
 .env
 *.log
+
+# Delegation files
+TASK.md
+REVIEW.md
+TEST.md
