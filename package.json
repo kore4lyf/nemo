@@ -1,0 +1,27 @@
+{
+  "name": "nemo",
+  "version": "0.1.0",
+  "description": "Discord project manager bot — AI agent powered by LangChain",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "langchain",
+    "ai-agent",
+    "project-manager"
+  ],
+  "author": "Korede Faleye",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/openai": "^1.5.3",
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  }
+}
