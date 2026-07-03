@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
-import "./config/env.js";
+import "../config/env.js";
 
 test("env.js validates required vars", () => {
   assert.ok(process.env.DISCORD_TOKEN, "DISCORD_TOKEN is set");
