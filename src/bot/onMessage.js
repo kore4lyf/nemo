@@ -50,6 +50,7 @@ async function callAgent({ client, message }) {
 
 export async function onMessage(message) {
   if (message.author.bot) return;
+  if (!message.mentions.has(message.client.user)) return;
 
   const { client } = message;
 
