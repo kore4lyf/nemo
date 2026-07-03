@@ -56,7 +56,11 @@ export async function onMessage(message) {
   try {
     const response = await callAgent({ client, message });
     if (response?.trim()) {
-      await message.reply(response);
+      try {
+        await message.reply(response);
+      } catch (replyErr) {
+        logger.warn("Failed to send reply:", replyErr.message);
+      }
     }
   } catch (error) {
     logger.error("Agent failed:", error.message || error);

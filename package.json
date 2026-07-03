@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test src/tests/**/*.test.js"
+    "test": "node --test src/tests/tools.test.js src/tests/behavior.test.js src/tests/api.test.js",
+    "test:adversarial": "NODE_ENV=test node --test src/tests/adversarial-*.test.js",
+    "test:all": "NODE_ENV=test node --test src/tests/*.test.js"
   },
   "keywords": [
     "discord",

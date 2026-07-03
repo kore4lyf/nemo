@@ -83,7 +83,7 @@ export async function processWithAgent({ client, message }) {
 
       // If no tool calls, the model is done — return the final text
       if (!response.tool_calls || response.tool_calls.length === 0) {
-        return response.content || "Done — no text response from the model.";
+        return response.content || "Done. Let me know if there's anything else you need.";
       }
 
       // Execute every tool call the model requested
