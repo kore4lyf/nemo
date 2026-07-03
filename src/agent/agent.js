@@ -1,6 +1,8 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { extractContext } from "../discord/context.js";
+import { LLM_DEFAULTS } from "../config/constants.js";
+import { logger } from "../config/logger.js";
 import {
   sendMessage,
   pinMessage,
@@ -32,25 +34,25 @@ function buildDiscordTools(client) {
 
 // Main entry point: process a Discord message through the ReAct agent
 export async function processWithAgent({ client, message }) {
-  // 1. Build tools bound to THIS client instance
+  // Build tools bound to THIS client instance
   const tools = buildDiscordTools(client);
 
-  // 2. Initialize LLM and bind tools so the model can call them
+  // Initialize LLM and bind tools so the model can call them
   const llm = new ChatOpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || "https://api.aimlapi.com/v1",
-    model: process.env.OPENAI_MODEL || "alibaba/qwen3-vl-flash",
+    baseURL: process.env.OPENAI_BASE_URL || LLM_DEFAULTS.BASE_URL,
+    model: process.env.OPENAI_MODEL || LLM_DEFAULTS.MODEL,
     temperature: 0.1,
   });
   const llmWithTools = llm.bindTools(tools);
 
-  // 3. Extract Discord context (channel, message, author, mentions)
+  // Extract Discord context (channel, message, author, mentions)
   const context = extractContext({ client, message });
 
-  // 4. Build a tool-name lookup map
+  // Tool-name lookup map for the ReAct loop
   const toolMap = Object.fromEntries(tools.map((t) => [t.name, t]));
 
-  // 5. System prompt
+  // System prompt — includes context so the LLM knows channel/message IDs
   const systemMessage = new SystemMessage({
     content: [
       "You are Nemo, an AI-powered project manager Discord bot.",
@@ -69,7 +71,7 @@ export async function processWithAgent({ client, message }) {
     ].join("\n"),
   });
 
-  // 6. ReAct loop
+  // ReAct loop: LLM decides tool calls → execute → feed results back
   const messages = [systemMessage, new HumanMessage(message.content)];
   const MAX_ITERATIONS = 6;
 
@@ -115,7 +117,7 @@ export async function processWithAgent({ client, message }) {
     ]);
     return final.content || "Done — iteration limit reached.";
   } catch (error) {
-    console.error("Agent error:", error);
+    logger.error("Agent error:", error);
     return `Sorry, I hit an error while processing your request: ${error.message}`;
   }
 }
