@@ -1,17 +1,12 @@
 import "dotenv/config";
 import "./config/env.js";
 import { Client, GatewayIntentBits, Events } from "discord.js";
+import retry from "async-retry";
 import { processWithAgent } from "./agent/agent.js";
 
-// ── Retry config (OpenCode/Kilo Code pattern) ──────────────────────
-const MAX_RETRIES = 3;
-const BASE_DELAY_MS = 2000;
-const MAX_DELAY_MS = 30_000;
-const JITTER_MS = 500;
-
-// ── Error classification ───────────────────────────────────────────
+// ── Error classification (OpenCode/Kilo Code pattern) ──────────────
 function isRetryable(err) {
-  // Network-level errors — always retry
+  // Network-level errors
   if (
     err.code === "UND_ERR_CONNECT_TIMEOUT" ||
     err.code === "ENOTFOUND" ||
@@ -26,15 +21,12 @@ function isRetryable(err) {
   // HTTP status codes
   const status = err.status || err.statusCode || err.response?.status;
   if (status) {
-    // Rate limit — retry (respect Retry-After header)
-    if (status === 429 || status === 529) return true;
-    // Server errors — retry
-    if (status >= 500) return true;
-    // Client errors — don't retry (bad request, auth, forbidden)
-    if (status >= 400 && status < 500) return false;
+    if (status === 429 || status === 529) return true; // rate limit
+    if (status >= 500) return true; // server errors
+    if (status >= 400 && status < 500) return false; // client errors — don't retry
   }
 
-  // Content moderation / safety blocks — don't retry
+  // Content moderation / safety — don't retry
   const msg = err.message?.toLowerCase() || "";
   if (msg.includes("content moderation") || msg.includes("safety") || msg.includes("blocked")) {
     return false;
@@ -43,43 +35,25 @@ function isRetryable(err) {
   return false;
 }
 
-function getRetryDelay(err, attempt) {
-  // Respect Retry-After header if present
-  const retryAfter = err.headers?.["retry-after"] || err.response?.headers?.["retry-after"];
-  if (retryAfter) {
-    const seconds = parseInt(retryAfter, 10);
-    if (!isNaN(seconds)) return seconds * 1000;
-  }
-
-  // Exponential backoff: 2s → 4s → 8s → 16s (capped at 30s)
-  const delay = Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
-  // Add jitter to prevent retry storms
-  return delay + Math.random() * JITTER_MS;
-}
-
 // ── Retry wrapper ──────────────────────────────────────────────────
 async function callAgent({ client, message }) {
-  let lastError;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await processWithAgent({ client, message });
-    } catch (err) {
-      lastError = err;
-
-      if (!isRetryable(err) || attempt === MAX_RETRIES) {
+  return retry(
+    async (bail) => {
+      try {
+        return await processWithAgent({ client, message });
+      } catch (err) {
+        if (!isRetryable(err)) bail(err);
         throw err;
       }
-
-      const delay = getRetryDelay(err, attempt);
-      console.warn(
-        `⚠️ Retry ${attempt + 1}/${MAX_RETRIES} after ${Math.round(delay)}ms — ${err.code || err.status || err.message}`
-      );
-      await new Promise((r) => setTimeout(r, delay));
+    },
+    {
+      retries: 3,
+      minTimeout: 2000,   // 2s base
+      maxTimeout: 30_000, // 30s cap
+      onRetry: (err, attempt) =>
+        console.warn(`⚠️ Retry ${attempt}/3 — ${err.code || err.status || err.message}`),
     }
-  }
-
-  throw lastError;
+  );
 }
 
 // ── Bot setup ──────────────────────────────────────────────────────
@@ -100,7 +74,6 @@ async function main() {
     console.log(`✅ Logged in as ${readyClient.user.tag}`);
   });
 
-  // Reconnection events — never crash
   client.on(Events.ShardDisconnect, (event, shardId) => {
     console.warn(`⚠️ Shard ${shardId} disconnected (code: ${event.code}). Auto-reconnecting...`);
   });
@@ -117,7 +90,6 @@ async function main() {
     console.error("❌ Client error (non-fatal):", error.message);
   });
 
-  // Message handler
   client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) return;
 
@@ -147,7 +119,6 @@ main().catch((err) => {
   process.exit(1);
 });
 
-// Never crash on unhandled errors
 process.on("unhandledRejection", (err) => {
   console.error("❌ Unhandled rejection (non-fatal):", err?.message || err);
 });

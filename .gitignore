@@ -7,6 +7,9 @@ dist/
 TASK.md
 REVIEW.md
 TEST.md
+
+# Agent channel config
+AGENT-CHANNEL.md
 -e 
 # Rules file
 RULES.md
