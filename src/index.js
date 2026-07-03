@@ -1,36 +1,88 @@
 import "dotenv/config";
 import "./config/env.js";
 import { Client, GatewayIntentBits, Events } from "discord.js";
-import retry from "async-retry";
 import { processWithAgent } from "./agent/agent.js";
 
-async function callAgent({ client, message }) {
-  return retry(
-    async (bail) => {
-      try {
-        return await processWithAgent({ client, message });
-      } catch (err) {
-        // Don't retry on non-network errors (bad input, LLM errors, etc.)
-        const isNetworkError =
-          err.code === "UND_ERR_CONNECT_TIMEOUT" ||
-          err.code === "ENOTFOUND" ||
-          err.code === "ECONNRESET" ||
-          err.message?.includes("timeout");
+// ── Retry config (OpenCode/Kilo Code pattern) ──────────────────────
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 2000;
+const MAX_DELAY_MS = 30_000;
+const JITTER_MS = 500;
 
-        if (!isNetworkError) bail(err);
-        throw err;
-      }
-    },
-    {
-      retries: 3,
-      minTimeout: 1000,
-      maxTimeout: 5000,
-      onRetry: (err, attempt) =>
-        console.warn(`⚠️ Retry ${attempt}: ${err.code || err.message}`),
-    }
-  );
+// ── Error classification ───────────────────────────────────────────
+function isRetryable(err) {
+  // Network-level errors — always retry
+  if (
+    err.code === "UND_ERR_CONNECT_TIMEOUT" ||
+    err.code === "ENOTFOUND" ||
+    err.code === "ECONNRESET" ||
+    err.code === "ECONNREFUSED" ||
+    err.code === "ETIMEDOUT" ||
+    err.message?.includes("timeout")
+  ) {
+    return true;
+  }
+
+  // HTTP status codes
+  const status = err.status || err.statusCode || err.response?.status;
+  if (status) {
+    // Rate limit — retry (respect Retry-After header)
+    if (status === 429 || status === 529) return true;
+    // Server errors — retry
+    if (status >= 500) return true;
+    // Client errors — don't retry (bad request, auth, forbidden)
+    if (status >= 400 && status < 500) return false;
+  }
+
+  // Content moderation / safety blocks — don't retry
+  const msg = err.message?.toLowerCase() || "";
+  if (msg.includes("content moderation") || msg.includes("safety") || msg.includes("blocked")) {
+    return false;
+  }
+
+  return false;
 }
 
+function getRetryDelay(err, attempt) {
+  // Respect Retry-After header if present
+  const retryAfter = err.headers?.["retry-after"] || err.response?.headers?.["retry-after"];
+  if (retryAfter) {
+    const seconds = parseInt(retryAfter, 10);
+    if (!isNaN(seconds)) return seconds * 1000;
+  }
+
+  // Exponential backoff: 2s → 4s → 8s → 16s (capped at 30s)
+  const delay = Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
+  // Add jitter to prevent retry storms
+  return delay + Math.random() * JITTER_MS;
+}
+
+// ── Retry wrapper ──────────────────────────────────────────────────
+async function callAgent({ client, message }) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await processWithAgent({ client, message });
+    } catch (err) {
+      lastError = err;
+
+      if (!isRetryable(err) || attempt === MAX_RETRIES) {
+        throw err;
+      }
+
+      const delay = getRetryDelay(err, attempt);
+      console.warn(
+        `⚠️ Retry ${attempt + 1}/${MAX_RETRIES} after ${Math.round(delay)}ms — ${err.code || err.status || err.message}`
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+// ── Bot setup ──────────────────────────────────────────────────────
 async function main() {
   console.log("🤖 Nemo starting...");
 
@@ -42,15 +94,13 @@ async function main() {
       GatewayIntentBits.DirectMessages,
     ],
     rest: { timeout: 30_000 },
-    // Auto-reconnect: discord.js does this by default, but let's be explicit
-    failIfChannelNotGuaranteed: false,
   });
 
   client.once(Events.ClientReady, (readyClient) => {
     console.log(`✅ Logged in as ${readyClient.user.tag}`);
   });
 
-  // Reconnection logging — never crash on these
+  // Reconnection events — never crash
   client.on(Events.ShardDisconnect, (event, shardId) => {
     console.warn(`⚠️ Shard ${shardId} disconnected (code: ${event.code}). Auto-reconnecting...`);
   });
@@ -63,11 +113,11 @@ async function main() {
     console.log(`✅ Shard ${shardId} resumed (${replayedEvents} events replayed)`);
   });
 
-  // Catch-all: log but never crash
   client.on(Events.Error, (error) => {
     console.error("❌ Client error (non-fatal):", error.message);
   });
 
+  // Message handler
   client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) return;
 
@@ -91,12 +141,13 @@ async function main() {
   await client.login(token);
 }
 
+// ── Entry point ────────────────────────────────────────────────────
 main().catch((err) => {
   console.error("❌ Fatal:", err.message || err);
   process.exit(1);
 });
 
-// Never crash on unhandled errors — keep the bot alive
+// Never crash on unhandled errors
 process.on("unhandledRejection", (err) => {
   console.error("❌ Unhandled rejection (non-fatal):", err?.message || err);
 });
