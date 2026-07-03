@@ -1,7 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { tool } from "@langchain/core/tools";
-import { z } from "zod";
+import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
+import { extractContext } from "../discord/context.js";
 import {
   sendMessage,
   pinMessage,
@@ -14,150 +13,109 @@ import {
   getChannelInfo,
   listThreads,
 } from "../discord/tools.js";
-import { extractContext } from "../discord/context.js";
 
-// Import all Discord tools and create a unified tools array
-const discordTools = [
-  sendMessage({ client: null }),
-  pinMessage({ client: null }),
-  unpinMessage({ client: null }),
-  createThread({ client: null }),
-  sendThreadMessage({ client: null }),
-  addReaction({ client: null }),
-  deleteMessage({ client: null }),
-  editMessage({ client: null }),
-  getChannelInfo({ client: null }),
-  listThreads({ client: null }),
-];
+// Build all Discord tools bound to a live client
+function buildDiscordTools(client) {
+  return [
+    sendMessage({ client }),
+    pinMessage({ client }),
+    unpinMessage({ client }),
+    createThread({ client }),
+    sendThreadMessage({ client }),
+    addReaction({ client }),
+    deleteMessage({ client }),
+    editMessage({ client }),
+    getChannelInfo({ client }),
+    listThreads({ client }),
+  ];
+}
 
-// Create a simple agent function that can call tools
-export async function processWithAgent({ client, message, tools }) {
-  // Initialize LLM with environment variables
+// Main entry point: process a Discord message through the ReAct agent
+export async function processWithAgent({ client, message }) {
+  // 1. Build tools bound to THIS client instance
+  const tools = buildDiscordTools(client);
+
+  // 2. Initialize LLM and bind tools so the model can call them
   const llm = new ChatOpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-    model: process.env.OPENAI_MODEL || "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    baseURL: process.env.OPENAI_BASE_URL || "https://api.aimlapi.com/v1",
+    model: process.env.OPENAI_MODEL || "alibaba/qwen3-vl-flash",
     temperature: 0.1,
   });
+  const llmWithTools = llm.bindTools(tools);
 
-  // Extract context
+  // 3. Extract Discord context (channel, message, author, mentions)
   const context = extractContext({ client, message });
-  
-  // Create the system prompt with available tools
-  const systemPrompt = `You are Nemo, an AI-powered project manager Discord bot. Help users manage their Discord server through natural conversation.
 
-Available tools:
-${tools.map(t => `- ${t.name}: ${t.description}`).join('\n')}
+  // 4. Build a tool-name lookup map
+  const toolMap = Object.fromEntries(tools.map((t) => [t.name, t]));
 
-When a user asks you to do something:
-1. Extract the relevant information from the context (channelId, messageId, etc.)
-2. Use the appropriate tool to accomplish the task
-3. Respond with a friendly, helpful message about what you did
-4. If something goes wrong, explain what happened and suggest alternatives
+  // 5. System prompt
+  const systemMessage = new SystemMessage({
+    content: [
+      "You are Nemo, an AI-powered project manager Discord bot.",
+      "Help users manage their Discord server through natural conversation.",
+      "You have access to Discord tools. Use them when the user asks you to do something.",
+      "After executing a tool, tell the user what happened in a short, friendly message.",
+      "If you don't need a tool, just reply normally.",
+      "",
+      "Context:",
+      `  Channel: ${context.currentChannel?.name ?? "unknown"} (${context.currentChannel?.id ?? "?"})`,
+      `  Guild: ${context.currentChannel?.guildId ?? "?"}`,
+      `  Current message ID: ${context.currentMessage?.id ?? "?"}`,
+      `  Current message author: ${context.currentMessage?.author ?? "unknown"}`,
+      `  Current message content: ${context.currentMessage?.content ?? ""}`,
+      `  Mentioned users: ${context.mentionedUsers?.map((u) => `${u.name} (${u.id})`).join(", ") || "none"}`,
+    ].join("\n"),
+  });
 
-Always be polite, clear, and helpful. Focus on making the user's Discord experience better.
-
-Context: ${JSON.stringify(context)}`;
+  // 6. ReAct loop
+  const messages = [systemMessage, new HumanMessage(message.content)];
+  const MAX_ITERATIONS = 6;
 
   try {
-    // Create messages for the LLM
-    const messages = [
-      new SystemMessage({ content: systemPrompt }),
-      new HumanMessage({ content: message.content })
-    ];
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      // Call the LLM (with tools bound)
+      const response = await llmWithTools.invoke(messages);
+      messages.push(response);
 
-    // Get response from LLM
-    const response = await llm.invoke(messages);
-    return response.content;
-  } catch (error) {
-    console.error("Agent processing error:", error);
-    return `Sorry, I encountered an error while processing your request: ${error.message}`;
-  }
-}
+      // If no tool calls, the model is done — return the final text
+      if (!response.tool_calls || response.tool_calls.length === 0) {
+        return response.content || "Done — no text response from the model.";
+      }
 
-// Process a user message through the agent
-export async function processMessage({ client, message }) {
-  try {
-    // Extract context from the message
-    const context = extractContext({ client, message });
-    
-    // Create the agent with the current client
-    const agent = createAgent({ client });
-    
-    // Create the human message with context
-    const humanMessage = new HumanMessage({
-      content: message.content,
-      additionalKwargs: {
-        context,
-        author: message.author.username,
-        channel: message.channel.name,
-        guild: message.guild?.name,
-      },
-    });
+      // Execute every tool call the model requested
+      for (const call of response.tool_calls) {
+        const fn = toolMap[call.name];
+        if (!fn) {
+          messages.push(
+            new ToolMessage({
+              content: JSON.stringify({ success: false, error: `Unknown tool: ${call.name}` }),
+              tool_call_id: call.id,
+            })
+          );
+          continue;
+        }
 
-    // Invoke the agent
-    const response = await agent.invoke({
-      messages: [humanMessage],
-    });
-
-    // Return the agent's response
-    return response.messages[response.messages.length - 1].content;
-  } catch (error) {
-    console.error("Agent processing error:", error);
-    return `Sorry, I encountered an error while processing your request: ${error.message}`;
-  }
-}
-
-// Alternative: Simple tool executor for when we don't need the full agent
-export async function executeToolCall({ client, message, toolName, args }) {
-  try {
-    // Extract context to get current channel info
-    const context = extractContext({ client, message });
-    
-    // If no tool name is provided, just respond conversationally
-    if (!toolName) {
-      return "I'm here to help! You can ask me to pin messages, create threads, send messages, and more. What would you like to do?";
-    }
-
-    // Find the requested tool
-    const tool = discordTools.find(t => t.name === toolName);
-    if (!tool) {
-      return `I don't have a "${toolName}" tool available. Try commands like: pin_message, create_thread, send_message, etc.`;
-    }
-
-    // Parse arguments if they're a string
-    let parsedArgs = args;
-    if (typeof args === "string") {
-      try {
-        parsedArgs = JSON.parse(args);
-      } catch {
-        // If JSON parsing fails, treat as simple content
-        parsedArgs = { content: args };
+        // Invoke the tool with the LLM's arguments
+        const result = await fn.invoke(call.args);
+        messages.push(
+          new ToolMessage({
+            content: JSON.stringify(result),
+            tool_call_id: call.id,
+          })
+        );
       }
     }
 
-    // Add context to arguments if not provided
-    if (!parsedArgs.channelId && context.currentChannel?.id) {
-      parsedArgs.channelId = context.currentChannel.id;
-    }
-
-    // Execute the tool
-    const result = await tool.invoke(parsedArgs);
-    
-    // Return a friendly response based on the result
-    if (result.success) {
-      if (result.messageId) {
-        return `✅ Done! Message sent with ID: ${result.messageId}`;
-      } else if (result.threadId) {
-        return `✅ Thread created successfully with ID: ${result.threadId}`;
-      } else {
-        return "✅ Action completed successfully!";
-      }
-    } else {
-      return `❌ ${result.error}`;
-    }
+    // Safety: if we exhausted iterations, ask the model for a summary
+    const final = await llmWithTools.invoke([
+      ...messages,
+      new HumanMessage("Please summarise what you did so far."),
+    ]);
+    return final.content || "Done — iteration limit reached.";
   } catch (error) {
-    console.error("Tool execution error:", error);
-    return `❌ Error: ${error.message}`;
+    console.error("Agent error:", error);
+    return `Sorry, I hit an error while processing your request: ${error.message}`;
   }
 }

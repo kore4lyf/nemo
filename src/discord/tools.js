@@ -135,20 +135,20 @@ export function createThread({ client }) {
           return failureResponse(`Missing permission: ${permission}`);
         }
 
-        let thread;
+        // Import ChannelType enum
+        const { ChannelType } = await import("discord.js");
+        const threadType = type === "private" ? ChannelType.PrivateThread : ChannelType.PublicThread;
+
+        // Create thread (no duplicate code anymore)
+        const thread = await channel.threads.create({
+          name,
+          type: threadType,
+          autoArchiveDuration,
+        });
+
+        // Send initial message if provided
         if (message) {
-          thread = await channel.threads.create({
-            name,
-            type,
-            autoArchiveDuration,
-          });
           await thread.send(message);
-        } else {
-          thread = await channel.threads.create({
-            name,
-            type,
-            autoArchiveDuration,
-          });
         }
 
         return successResponse({ threadId: thread.id });

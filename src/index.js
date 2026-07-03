@@ -1,97 +1,34 @@
 import "dotenv/config";
+import "./config/env.js";
 import { Client, GatewayIntentBits, Events } from "discord.js";
-import { env } from "./config/env.js";
-import { extractContext } from "./discord/context.js";
-import {
-  sendMessage,
-  pinMessage,
-  unpinMessage,
-  createThread,
-  sendThreadMessage,
-  addReaction,
-  deleteMessage,
-  editMessage,
-  getChannelInfo,
-  listThreads,
-} from "./discord/tools.js";
+import retry from "async-retry";
 import { processWithAgent } from "./agent/agent.js";
 
-let availableTools = [];
+async function callAgent({ client, message }) {
+  return retry(
+    async (bail) => {
+      try {
+        return await processWithAgent({ client, message });
+      } catch (err) {
+        // Don't retry on non-network errors (bad input, LLM errors, etc.)
+        const isNetworkError =
+          err.code === "UND_ERR_CONNECT_TIMEOUT" ||
+          err.code === "ENOTFOUND" ||
+          err.code === "ECONNRESET" ||
+          err.message?.includes("timeout");
 
-function buildTools(client) {
-  const toolFactories = [
-    sendMessage({ client }),
-    pinMessage({ client }),
-    unpinMessage({ client }),
-    createThread({ client }),
-    sendThreadMessage({ client }),
-    addReaction({ client }),
-    deleteMessage({ client }),
-    editMessage({ client }),
-    getChannelInfo({ client }),
-    listThreads({ client }),
-  ];
-
-  availableTools = toolFactories.map((t) => {
-    if (typeof t?.invoke === "function") {
-      return t;
+        if (!isNetworkError) bail(err);
+        throw err;
+      }
+    },
+    {
+      retries: 3,
+      minTimeout: 1000,
+      maxTimeout: 5000,
+      onRetry: (err, attempt) =>
+        console.warn(`⚠️ Retry ${attempt}: ${err.code || err.message}`),
     }
-
-    const configured = typeof t === "function" ? t({ client }) : t;
-    if (typeof configured?.invoke === "function") {
-      return configured;
-    }
-
-    throw new Error(`Invalid tool object returned for tool: ${t?.name}`);
-  });
-}
-
-function findTool(name) {
-  return availableTools.find((t) => t.name === name) || null;
-}
-
-async function executeToolCall(client, toolName, rawArgs) {
-  const tool = findTool(toolName);
-  if (!tool) {
-    return { success: false, error: `Tool not found: ${toolName}` };
-  }
-
-  try {
-    const parsed = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
-    const result = await tool.invoke(parsed);
-    return result || { success: false, error: "Tool returned no result." };
-  } catch (error) {
-    // Handle Zod validation errors (ToolInputParsingException)
-    if (error?.name === 'ToolInputParsingException' || error?.constructor?.name === 'ToolInputParsingException') {
-      // Extract clean error message from Zod error format
-      const errorMsg = error.message || '';
-      const cleanMsg = errorMsg.split('\n')[1]?.trim() || 'Invalid input: schema validation failed';
-      return { success: false, error: `Invalid input: ${cleanMsg}` };
-    }
-    return { success: false, error: String(error) };
-  }
-}
-
-async function processNaturalLanguage({ client, message }) {
-  try {
-    // Extract context for the agent
-    const context = extractContext({ client, message });
-    
-    // Build tools with the current client
-    buildTools(client);
-    
-    // Try to process with the agent
-    const response = await processWithAgent({
-      client,
-      message,
-      tools: availableTools
-    });
-    
-    return response;
-  } catch (error) {
-    console.error("Natural language processing error:", error);
-    return "Sorry, I couldn't process your request. Please try a simpler command or check if I have the necessary permissions.";
-  }
+  );
 }
 
 async function main() {
@@ -104,42 +41,44 @@ async function main() {
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.DirectMessages,
     ],
+    rest: { timeout: 30_000 },
+    // Auto-reconnect: discord.js does this by default, but let's be explicit
+    failIfChannelNotGuaranteed: false,
   });
 
   client.once(Events.ClientReady, (readyClient) => {
     console.log(`✅ Logged in as ${readyClient.user.tag}`);
-    buildTools(readyClient.client || readyClient);
+  });
+
+  // Reconnection logging — never crash on these
+  client.on(Events.ShardDisconnect, (event, shardId) => {
+    console.warn(`⚠️ Shard ${shardId} disconnected (code: ${event.code}). Auto-reconnecting...`);
+  });
+
+  client.on(Events.ShardReconnecting, (shardId) => {
+    console.log(`🔄 Shard ${shardId} reconnecting...`);
+  });
+
+  client.on(Events.ShardResume, (shardId, replayedEvents) => {
+    console.log(`✅ Shard ${shardId} resumed (${replayedEvents} events replayed)`);
+  });
+
+  // Catch-all: log but never crash
+  client.on(Events.Error, (error) => {
+    console.error("❌ Client error (non-fatal):", error.message);
   });
 
   client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) return;
-    
-    // Extract context for logging
-    const context = extractContext({ client, message });
-    // console.log("[context]", JSON.stringify(context)); // Debug: uncomment for development
 
-    // Check if it's a command (starts with !)
-    if (message.content.startsWith("!")) {
-      const raw = message.content.slice(1).trim();
-      const [toolName, ...rest] = raw.split(/\s+/);
-      const argsRaw = rest.join(" ");
-
-      // Execute tool call for commands
-      const result = await executeToolCall(client, toolName, argsRaw);
-      const reply = `🛠️ **${toolName}**\n` + "```json\n" + JSON.stringify(result, null, 2) + "\n```";
-      await message.reply({ content: reply });
-      return;
-    }
-
-    // For natural language messages, try to process with the agent
     try {
-      const response = await processNaturalLanguage({ client, message });
-      if (response && response.trim()) {
+      const response = await callAgent({ client, message });
+      if (response?.trim()) {
         await message.reply(response);
       }
     } catch (error) {
-      console.error("Natural language processing failed:", error);
-      // Don't reply to avoid spam, just log the error
+      console.error("Agent failed:", error.message || error);
+      await message.reply("Something went wrong — try again in a moment.").catch(() => {});
     }
   });
 
@@ -152,4 +91,16 @@ async function main() {
   await client.login(token);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error("❌ Fatal:", err.message || err);
+  process.exit(1);
+});
+
+// Never crash on unhandled errors — keep the bot alive
+process.on("unhandledRejection", (err) => {
+  console.error("❌ Unhandled rejection (non-fatal):", err?.message || err);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("❌ Uncaught exception (non-fatal):", err.message);
+});

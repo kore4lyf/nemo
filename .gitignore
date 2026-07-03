@@ -7,3 +7,6 @@ dist/
 TASK.md
 REVIEW.md
 TEST.md
+-e 
+# Rules file
+RULES.md
