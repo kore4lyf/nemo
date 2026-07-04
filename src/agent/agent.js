@@ -18,7 +18,7 @@ export async function processWithAgent({ client, message }) {
     model: process.env.OPENAI_MODEL || LLM_DEFAULTS.MODEL,
     temperature: 0.1,
   });
-  const llmWithTools = llm.bindTools(tools);
+  const llmWithTools = llm.bindTools(tools, { tool_choice: "auto" });
 
   // Extract Discord context (channel, message, author, mentions)
   const context = extractContext({ client, message });
