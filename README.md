@@ -416,6 +416,7 @@ Nemo supports DMs, but with a narrower contract than server channels.
 - **Last-seen server heuristic** — Nemo remembers the last server where a user mentioned it, and uses that as the default project context in DMs.
 - **No cached project yet** — If there is no last-seen server for the user, Nemo replies with a short prompt asking them to mention Nemo in the relevant server first.
 - **Guild-specific tools still need a server** — Some actions, like milestone reads or project-channel setup, remain tied to a specific guild. In ambiguous cases, Nemo will ask which project before acting.
+- **Switching servers** — The only current way to switch DM project context is to mention Nemo in another server. There is no in-DM command to list or rebind projects yet.
 
 ---
 
@@ -451,6 +452,7 @@ Nemo is actively evolving. Planned capabilities:
 - [ ] Integration with external trackers (Jira, GitHub Issues, Linear)
 - [ ] Confirmation guardrails for destructive edits/deletes
 - [ ] Rate/cost controls for high-traffic servers
+- [ ] Explicit DM project binding so users can switch servers without leaving DMs
 
 ---
 
