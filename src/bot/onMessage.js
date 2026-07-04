@@ -53,7 +53,16 @@ export async function onMessage(message) {
   const isDM = !message.guild;
   if (!isDM && !message.mentions.has(message.client.user)) return;
 
-  const { client } = message;
+  const { client, author } = message;
+  if (isDM) {
+    const isServerMember = client.guilds.cache.some((guild) =>
+      guild.members.cache.has(author.id)
+    );
+    if (!isServerMember) {
+      logger.debug("Ignored DM from non-server member:", author.id);
+      return;
+    }
+  }
 
   try {
     const response = await callAgent({ client, message });
