@@ -313,7 +313,7 @@ test("context: message with special characters in content → should preserve", 
 // ══════════════════════════════════════════════════════════════════
 
 test("permission: client.user is null → hasPermission returns false", async () => {
-  const { hasPermission } = await import("../discord/permissions.js");
+  const { hasPermission } = await import("../discord/tools/shared/permissions.js");
   const client = {
     user: null,
     channels: {
@@ -330,7 +330,7 @@ test("permission: client.user is null → hasPermission returns false", async ()
 });
 
 test("permission: member not found → hasPermission returns false", async () => {
-  const { hasPermission } = await import("../discord/permissions.js");
+  const { hasPermission } = await import("../discord/tools/shared/permissions.js");
   const client = {
     user: { id: "bot-123" },
     channels: {
@@ -347,7 +347,7 @@ test("permission: member not found → hasPermission returns false", async () =>
 });
 
 test("permission: channel fetch fails → hasPermission returns false", async () => {
-  const { hasPermission } = await import("../discord/permissions.js");
+  const { hasPermission } = await import("../discord/tools/shared/permissions.js");
   const client = {
     user: { id: "bot-123" },
     channels: {
@@ -360,7 +360,7 @@ test("permission: channel fetch fails → hasPermission returns false", async ()
 });
 
 test("permission: unknown permission name → hasPermission throws", async () => {
-  const { hasPermission } = await import("../discord/permissions.js");
+  const { hasPermission } = await import("../discord/tools/shared/permissions.js");
   const client = {
     user: { id: "bot-123" },
     channels: {
@@ -384,7 +384,7 @@ test("permission: unknown permission name → hasPermission throws", async () =>
 });
 
 test("permission: null client → hasPermission returns false", async () => {
-  const { hasPermission } = await import("../discord/permissions.js");
+  const { hasPermission } = await import("../discord/tools/shared/permissions.js");
   const result = await hasPermission({ client: null, channelId: "ch-1", permissionName: "SendMessages" });
   assert.strictEqual(result, false);
 });
@@ -395,7 +395,7 @@ test("permission: null client → hasPermission returns false", async () => {
 
 test("createThread: type 'public' → maps to ChannelType.PublicThread", async () => {
   // Verify the tool uses the correct enum
-  const { createThread } = await import("../discord/tools.js");
+  const { createThread } = await import("../discord/tools/index.js");
   const { ChannelType } = await import("discord.js");
   
   let capturedType = null;
@@ -427,7 +427,7 @@ test("createThread: type 'public' → maps to ChannelType.PublicThread", async (
 });
 
 test("createThread: type 'private' → maps to ChannelType.PrivateThread", async () => {
-  const { createThread } = await import("../discord/tools.js");
+  const { createThread } = await import("../discord/tools/index.js");
   const { ChannelType } = await import("discord.js");
   
   let capturedType = null;
@@ -459,7 +459,7 @@ test("createThread: type 'private' → maps to ChannelType.PrivateThread", async
 });
 
 test("createThread: no type → defaults to PublicThread", async () => {
-  const { createThread } = await import("../discord/tools.js");
+  const { createThread } = await import("../discord/tools/index.js");
   const { ChannelType } = await import("discord.js");
   
   let capturedType = null;
@@ -495,7 +495,7 @@ test("createThread: no type → defaults to PublicThread", async () => {
 // ══════════════════════════════════════════════════════════════════
 
 test("all tools: success response has 'success: true' field", async () => {
-  const { sendMessage, pinMessage, unpinMessage, createThread, addReaction, deleteMessage, editMessage, getChannelInfo, listThreads, sendThreadMessage } = await import("../discord/tools.js");
+  const { sendMessage, pinMessage, unpinMessage, createThread, addReaction, deleteMessage, editMessage, getChannelInfo, listThreads, sendThreadMessage } = await import("../discord/tools/index.js");
   
   const ALL_PERMS = 0x1FFFFFFFFFFFFFn;
   const client = {
@@ -554,7 +554,7 @@ test("all tools: success response has 'success: true' field", async () => {
 });
 
 test("all tools: failure response has 'success: false' and 'error' fields", async () => {
-  const { sendMessage, pinMessage, unpinMessage, createThread, addReaction, deleteMessage, editMessage, getChannelInfo, listThreads, sendThreadMessage } = await import("../discord/tools.js");
+  const { sendMessage, pinMessage, unpinMessage, createThread, addReaction, deleteMessage, editMessage, getChannelInfo, listThreads, sendThreadMessage } = await import("../discord/tools/index.js");
   
   // No-permission client
   const client = {

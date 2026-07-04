@@ -16,7 +16,7 @@ import {
   editMessage,
   getChannelInfo,
   listThreads,
-} from "../discord/tools.js";
+} from "../discord/tools/index.js";
 
 // ── Mock factories ────────────────────────────────────────────────
 

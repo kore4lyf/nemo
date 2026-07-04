@@ -3,39 +3,12 @@ import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messag
 import { extractContext } from "../discord/context.js";
 import { LLM_DEFAULTS } from "../config/constants.js";
 import { logger } from "../config/logger.js";
-import {
-  sendMessage,
-  pinMessage,
-  unpinMessage,
-  createThread,
-  sendThreadMessage,
-  addReaction,
-  deleteMessage,
-  editMessage,
-  getChannelInfo,
-  listThreads,
-} from "../discord/tools.js";
-
-// Build all Discord tools bound to a live client
-function buildDiscordTools(client) {
-  return [
-    sendMessage({ client }),
-    pinMessage({ client }),
-    unpinMessage({ client }),
-    createThread({ client }),
-    sendThreadMessage({ client }),
-    addReaction({ client }),
-    deleteMessage({ client }),
-    editMessage({ client }),
-    getChannelInfo({ client }),
-    listThreads({ client }),
-  ];
-}
+import { buildAllTools } from "../discord/tools/index.js";
 
 // Main entry point: process a Discord message through the ReAct agent
 export async function processWithAgent({ client, message }) {
-  // Build tools bound to THIS client instance
-  const tools = buildDiscordTools(client);
+  // Build all Discord tools bound to a live client (action + context)
+  const tools = buildAllTools({ client });
 
   // Initialize LLM and bind tools so the model can call them
   const llm = new ChatOpenAI({

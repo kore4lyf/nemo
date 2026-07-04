@@ -11,7 +11,7 @@ import {
   editMessage,
   getChannelInfo,
   listThreads,
-} from "../discord/tools.js";
+} from "../discord/tools/index.js";
 import { extractContext } from "../discord/context.js";
 
 // ── Mock Discord client ────────────────────────────────────────────

@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { z } from "zod";
-import { sendMessage, pinMessage, unpinMessage, createThread, sendThreadMessage, addReaction, deleteMessage, editMessage, getChannelInfo, listThreads } from "../discord/tools.js";
+import { sendMessage, pinMessage, unpinMessage, createThread, sendThreadMessage, addReaction, deleteMessage, editMessage, getChannelInfo, listThreads } from "../discord/tools/index.js";
 import { extractContext } from "../discord/context.js";
 
 // Mock Discord client for testing

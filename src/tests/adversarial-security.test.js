@@ -68,7 +68,7 @@ test("prompt injection: tool call injection attempt", () => {
 // ══════════════════════════════════════════════════════════════════
 
 test("ID injection: SQL-like channelId → zod accepts (no SQL protection needed)", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const mockClient = {
     user: { id: "bot-123" },
     channels: { fetch: async () => { throw new Error("Invalid channel"); } },
@@ -82,7 +82,7 @@ test("ID injection: SQL-like channelId → zod accepts (no SQL protection needed
 });
 
 test("ID injection: extremely long channelId → zod min(1) allows it", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const mockClient = {
     user: { id: "bot-123" },
     channels: { fetch: async () => { throw new Error("Invalid channel"); } },
@@ -96,7 +96,7 @@ test("ID injection: extremely long channelId → zod min(1) allows it", async ()
 });
 
 test("ID injection: special characters in channelId", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const mockClient = {
     user: { id: "bot-123" },
     channels: { fetch: async () => { throw new Error("Invalid channel"); } },
@@ -113,7 +113,7 @@ test("ID injection: special characters in channelId", async () => {
 // ══════════════════════════════════════════════════════════════════
 
 test("unicode: zero-width characters in content → preserved", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const ALL_PERMS = 0x1FFFFFFFFFFFFFn;
   const mockClient = {
     user: { id: "bot-123" },
@@ -141,7 +141,7 @@ test("unicode: zero-width characters in content → preserved", async () => {
 });
 
 test("unicode: RTL override character → preserved", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const ALL_PERMS = 0x1FFFFFFFFFFFFFn;
   const mockClient = {
     user: { id: "bot-123" },
@@ -169,7 +169,7 @@ test("unicode: RTL override character → preserved", async () => {
 });
 
 test("unicode: emoji in channelId → zod accepts", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const mockClient = {
     user: { id: "bot-123" },
     channels: { fetch: async () => { throw new Error("Invalid channel"); } },
@@ -224,7 +224,7 @@ test("context leak: guild member list not exposed", () => {
 // ══════════════════════════════════════════════════════════════════
 
 test("schema bypass: extra fields → zod strips them", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const tool = sendMessage({ client: {} });
   
   // Extra fields should be ignored by zod
@@ -242,7 +242,7 @@ test("schema bypass: extra fields → zod strips them", async () => {
 });
 
 test("schema bypass: __proto__ pollution → zod handles it", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const tool = sendMessage({ client: {} });
   
   const malicious = JSON.parse('{"channelId":"ch-1","content":"hi","__proto__":{"admin":true}}');
@@ -254,7 +254,7 @@ test("schema bypass: __proto__ pollution → zod handles it", async () => {
 });
 
 test("schema bypass: null proto → zod handles it", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const tool = sendMessage({ client: {} });
   
   const malicious = Object.create(null);
@@ -270,7 +270,7 @@ test("schema bypass: null proto → zod handles it", async () => {
 // ══════════════════════════════════════════════════════════════════
 
 test("rate limit: rapid-fire tool calls → no built-in throttling", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const ALL_PERMS = 0x1FFFFFFFFFFFFFn;
   let sendCount = 0;
   
@@ -310,7 +310,7 @@ test("rate limit: rapid-fire tool calls → no built-in throttling", async () =>
 // ══════════════════════════════════════════════════════════════════
 
 test("error disclosure: tool errors should not leak internal paths", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const mockClient = {
     user: { id: "bot-123" },
     channels: {
@@ -332,7 +332,7 @@ test("error disclosure: tool errors should not leak internal paths", async () =>
 });
 
 test("error disclosure: permission errors should not reveal permission names to untrusted users", async () => {
-  const { sendMessage } = await import("../discord/tools.js");
+  const { sendMessage } = await import("../discord/tools/index.js");
   const mockClient = {
     user: { id: "bot-123" },
     channels: {

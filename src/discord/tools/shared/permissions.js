@@ -1,5 +1,6 @@
-import { TOOL_PERMISSIONS, PERMS } from "../config/constants.js";
+import { TOOL_PERMISSIONS, PERMS } from "../../../config/constants.js";
 
+// Discord.js v14 permission bitfield. Values must be BigInt.
 const PermissionsBitField = {
   [PERMS.VIEW_CHANNEL]: 0x400n,
   [PERMS.SEND_MESSAGES]: 0x800n,
@@ -9,6 +10,8 @@ const PermissionsBitField = {
   [PERMS.MANAGE_MESSAGES]: 0x2000n,
   [PERMS.CREATE_PUBLIC_THREADS]: 0x8n,
   [PERMS.CREATE_PRIVATE_THREADS]: 0x10n,
+  [PERMS.READ_MESSAGE_HISTORY]: 0x10000n,
+  // Legacy keys preserved for back-compat with older callers/tests
   ReadMessageHistory: 0x10000n,
   EmbedLinks: 0x4000n,
   AttachFiles: 0x8000n,
@@ -40,3 +43,5 @@ export async function hasPermission({ client, channelId, permissionName }) {
 export function getRequiredPermission(toolName) {
   return TOOL_PERMISSIONS[toolName] ?? PERMS.VIEW_CHANNEL;
 }
+
+export { PermissionsBitField };
