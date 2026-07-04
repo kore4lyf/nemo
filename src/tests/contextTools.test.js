@@ -442,6 +442,8 @@ function searchMockClient(messages) {
 
   const channel = {
     id: "ch-1",
+    type: 0,
+    name: "general",
     send: async () => ({ id: "notice-1", delete: async () => {} }),
     messages: {
       fetch: async ({ before } = {}) => {
@@ -473,12 +475,13 @@ test("search_messages schema requires channelId and query", () => {
   assert.ok(!tool.schema.safeParse({}).success);
   assert.ok(!tool.schema.safeParse({ channelId: "ch-1" }).success);
   assert.ok(!tool.schema.safeParse({ query: "api" }).success);
+  assert.ok(!tool.schema.safeParse({ channelId: "ch-1", query: "   " }).success);
   assert.ok(tool.schema.safeParse({ channelId: "ch-1", query: "api" }).success);
-  assert.ok(tool.schema.safeParse({ channelId: "ch-1", query: "api", author: "alice" }).success);
+  assert.ok(tool.schema.safeParse({ channelId: "ch-1", query: "api", author: "123456789012345678" }).success);
 });
 
 // ── search_messages behavior ──────────────────────────
-test("search_messages behavior splits and filters matches", async () => {
+test("search_messages behavior returns newest-first matches", async () => {
   const history = [
     { id: "m-1", authorId: "u-1", author: "alice", content: "deploy api plan", createdAt: new Date(Date.now() - 3000).toISOString(), bot: false },
     { id: "m-2", authorId: "u-2", author: "bob", content: "api is blocked", createdAt: new Date(Date.now() - 2000).toISOString(), bot: false },
@@ -494,9 +497,11 @@ test("search_messages behavior splits and filters matches", async () => {
   assert.strictEqual(result.matches.length, 2);
   assert.ok(result.matches.every((m) => m.content.toLowerCase().includes("api")));
   assert.ok(result.matches.every((m) => m.author !== "Nemo"));
+  assert.strictEqual(result.matches[0].id, "m-2");
+  assert.strictEqual(result.matches[1].id, "m-1");
 });
 
-test("search_messages behavior filters exact author id and username", async () => {
+test("search_messages behavior filters exact author id", async () => {
   const history = [
     { id: "m-1", authorId: "123456789012345678", author: "Tunde", content: "api issue", createdAt: new Date(Date.now() - 1000).toISOString(), bot: false },
     { id: "m-2", authorId: "987654321098765432", author: "Tunde", content: "not api", createdAt: new Date(Date.now() - 2000).toISOString(), bot: false },
@@ -509,44 +514,74 @@ test("search_messages behavior filters exact author id and username", async () =
   assert.strictEqual(byId.matches.length, 1);
   assert.strictEqual(byId.matches[0].authorId, "123456789012345678");
 
-  const byName = await tool.invoke({ channelId: "ch-1", query: "api", author: "tunde" });
-  assert.strictEqual(byName.success, true);
-  assert.strictEqual(byName.matches.length, 2);
+  const byOtherId = await tool.invoke({ channelId: "ch-1", query: "api", author: "987654321098765432" });
+  assert.strictEqual(byOtherId.success, true);
+  assert.strictEqual(byOtherId.matches.length, 1);
 });
 
-test("search_messages behavior respects 200-message ceiling", async () => {
-  const history = Array.from({ length: 150 }, (_, i) => ({
-    id: `m-${i}`,
-    authorId: `u-${i}`,
-    author: `user-${i}`,
-    content: i % 3 === 0 ? "api" : "other",
-    createdAt: new Date(Date.now() - i * 1000).toISOString(),
-    bot: false,
-  }));
-  const client = searchMockClient(history);
+test("search_messages behavior returns false when second fetch fails after partial data", async () => {
+  const history = [
+    { id: "m-1", authorId: "u-1", author: "alice", content: "api v1", createdAt: new Date(Date.now() - 1000).toISOString(), bot: false },
+    { id: "m-2", authorId: "u-2", author: "bob", content: "api v2", createdAt: new Date(Date.now() - 2000).toISOString(), bot: false },
+  ];
+  let calls = 0;
+  const client = {
+    user: { id: "bot-123" },
+    guilds: { fetch: async () => ({ channels: { cache: { first: () => ({ id: "ch-1" }) } } }) },
+    channels: {
+      fetch: async () => ({
+        id: "ch-1",
+        type: 0,
+        name: "general",
+        send: async () => ({ id: "notice-1", delete: async () => {} }),
+        messages: {
+          fetch: async () => {
+            calls += 1;
+            if (calls === 1) return createMessageCollection([history[0]]);
+            throw new Error("fetch fail");
+          },
+        },
+        guild: {
+          id: "g-1",
+          members: { resolve: (uid) => (uid === "bot-123" ? { id: "bot-123", permissions: { has: () => true, bitfield: 0x1FFFFFFFFFFFFFn } } : null) },
+        },
+      }),
+    },
+  };
   const tool = searchMessages({ client });
   const result = await tool.invoke({ channelId: "ch-1", query: "api" });
   assert.strictEqual(result.success, true);
-  assert.strictEqual(result.scanned, 150);
-  assert.strictEqual(result.truncated, false);
-  assert.ok(result.matches.length > 0);
-});
-
-test("search_messages behavior truncates when ceiling exceeds 200", async () => {
-  const history = Array.from({ length: 250 }, (_, i) => ({
-    id: `m-${i}`,
-    authorId: `u-${i}`,
-    author: `user-${i}`,
-    content: i % 2 === 0 ? "api" : "other",
-    createdAt: new Date(Date.now() - i * 1000).toISOString(),
-    bot: false,
-  }));
-  const client = searchMockClient(history);
-  const tool = searchMessages({ client });
-  const result = await tool.invoke({ channelId: "ch-1", query: "api" });
-  assert.strictEqual(result.success, true);
-  assert.strictEqual(result.scanned, 200);
+  assert.strictEqual(result.scanned, 1);
   assert.strictEqual(result.truncated, true);
+  assert.strictEqual(result.matches.length, 1);
+});
+
+test("search_messages behavior returns false when first fetch fails", async () => {
+  const client = {
+    user: { id: "bot-123" },
+    guilds: { fetch: async () => ({ channels: { cache: { first: () => ({ id: "ch-1" }) } } }) },
+    channels: {
+      fetch: async () => ({
+        id: "ch-1",
+        type: 0,
+        name: "general",
+        send: async () => ({ id: "notice-1", delete: async () => {} }),
+        messages: {
+          fetch: async () => {
+            throw new Error("first fetch fail");
+          },
+        },
+        guild: {
+          id: "g-1",
+          members: { resolve: (uid) => (uid === "bot-123" ? { id: "bot-123", permissions: { has: () => true, bitfield: 0x1FFFFFFFFFFFFFn } } : null) },
+        },
+      }),
+    },
+  };
+  const tool = searchMessages({ client });
+  const result = await tool.invoke({ channelId: "ch-1", query: "api" });
+  assert.strictEqual(result.success, false);
+  assert.ok(result.error?.includes("first fetch fail"));
 });
 
 test("search_messages behavior returns empty non-truncated when no history", async () => {
@@ -570,6 +605,8 @@ test("search_messages behavior continues when notice send fails", async () => {
     channels: {
       fetch: async () => ({
         id: "ch-1",
+        type: 0,
+        name: "general",
         send: async () => {
           throw new Error("no send");
         },
@@ -610,6 +647,8 @@ test("search_messages behavior continues when notice delete fails", async () => 
     channels: {
       fetch: async () => ({
         id: "ch-1",
+        type: 0,
+        name: "general",
         send: async () => ({ id: "notice-1", delete: async () => { throw new Error("no delete"); } }),
         messages: {
           fetch: async ({ before } = {}) => {

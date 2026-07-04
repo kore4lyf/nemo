@@ -29,6 +29,7 @@ export const TOOLS = {
   CHECK_PROJECT_CHANNELS: "check_project_channels",
   CREATE_PROJECT_CHANNELS: "create_project_channels",
   GET_EVENTS: "get_events",
+  SEARCH_MESSAGES: "search_messages",
 };
 
 // Permission names (used in permissions.js getRequiredPermission)
@@ -74,6 +75,7 @@ export const TOOL_PERMISSIONS = {
   [TOOLS.CHECK_PROJECT_CHANNELS]: PERMS.VIEW_CHANNEL,
   [TOOLS.CREATE_PROJECT_CHANNELS]: PERMS.MANAGE_CHANNELS,
   [TOOLS.GET_EVENTS]: PERMS.VIEW_CHANNEL,
+  [TOOLS.SEARCH_MESSAGES]: PERMS.READ_MESSAGE_HISTORY,
 };
 
 // Required project channels — hardcoded, matched case-insensitively

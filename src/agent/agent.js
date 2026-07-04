@@ -2,6 +2,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { extractContext } from "../discord/context.js";
 import { LLM_DEFAULTS } from "../config/constants.js";
+import { getSystemPrompt } from "../config/systemPrompt.js";
 import { logger } from "../config/logger.js";
 import { buildAllTools } from "../discord/tools/index.js";
 
@@ -25,24 +26,19 @@ export async function processWithAgent({ client, message }) {
   // Tool-name lookup map for the ReAct loop
   const toolMap = Object.fromEntries(tools.map((t) => [t.name, t]));
 
-  // System prompt — includes context so the LLM knows channel/message IDs
-  const systemMessage = new SystemMessage({
-    content: [
-      "You are Nemo, an AI-powered project manager Discord bot.",
-      "Help users manage their Discord server through natural conversation.",
-      "You have access to Discord tools. Use them when the user asks you to do something.",
-      "After executing a tool, tell the user what happened in a short, friendly message.",
-      "If you don't need a tool, just reply normally.",
-      "",
-      "Context:",
-      `  Channel: ${context.currentChannel?.name ?? "unknown"} (${context.currentChannel?.id ?? "?"})`,
-      `  Guild: ${context.currentChannel?.guildId ?? "?"}`,
-      `  Current message ID: ${context.currentMessage?.id ?? "?"}`,
-      `  Current message author: ${context.currentMessage?.author ?? "unknown"}`,
-      `  Current message content: ${context.currentMessage?.content ?? ""}`,
-      `  Mentioned users: ${context.mentionedUsers?.map((u) => `${u.name} (${u.id})`).join(", ") || "none"}`,
-    ].join("\n"),
-  });
+  const systemContent = [
+    getSystemPrompt(),
+    "",
+    "Context:",
+    `  Channel: ${context.currentChannel?.name ?? "unknown"} (${context.currentChannel?.id ?? "?"})`,
+    `  Guild: ${context.currentChannel?.guildId ?? "?"}`,
+    `  Current message ID: ${context.currentMessage?.id ?? "?"}`,
+    `  Current message author: ${context.currentMessage?.author ?? "unknown"}`,
+    `  Current message content: ${context.currentMessage?.content ?? ""}`,
+    `  Mentioned users: ${context.mentionedUsers?.map((u) => `${u.name} (${u.id})`).join(", ") || "none"}`,
+  ].join("\n");
+
+  const systemMessage = new SystemMessage({ content: systemContent });
 
   // ReAct loop: LLM decides tool calls → execute → feed results back
   const messages = [systemMessage, new HumanMessage(message.content)];

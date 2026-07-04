@@ -84,3 +84,4 @@ export const getServerState = bound.get_server_state;
 export const checkProjectChannels = bound.check_project_channels;
 export const createProjectChannels = bound.create_project_channels;
 export const getEvents = bound.get_events;
+export const searchMessages = bound.search_messages;
