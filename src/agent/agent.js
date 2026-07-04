@@ -7,7 +7,7 @@ import { logger } from "../config/logger.js";
 import { buildAllTools } from "../discord/tools/index.js";
 
 // Main entry point: process a Discord message through the ReAct agent
-export async function processWithAgent({ client, message }) {
+export async function processWithAgent({ client, message, dmResolvedGuild }) {
   // Build all Discord tools bound to a live client (action + context)
   const tools = buildAllTools({ client });
 
@@ -21,7 +21,7 @@ export async function processWithAgent({ client, message }) {
   const llmWithTools = llm.bindTools(tools, { tool_choice: "auto" });
 
   // Extract Discord context (channel, message, author, mentions)
-  const context = extractContext({ client, message });
+  const context = extractContext({ client, message, fallbackGuildId: dmResolvedGuild });
 
   // Fetch the last 20 messages from this channel so Nemo has conversation
   // awareness — who said what, what was decided, what was discussed.

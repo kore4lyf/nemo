@@ -28,15 +28,20 @@ function isRetryable(err) {
   return false;
 }
 
-const ALLOWED_SWITCH_PREFIXES = /switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=]/i;
+const ALLOWED_SWITCH_PREFIXES =
+  /switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)\b(?!\s+(?:channel|thread|threads|plan|board|category|messages|pins?|project))/i;
 
 function looksLikeSwitchRequest(text) {
   return ALLOWED_SWITCH_PREFIXES.test(text || "");
 }
 
 function extractSwitchTarget(text) {
-  const match = text.match(/(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*["']?([^"'\n]+?)["']?\s*$/i);
-  return match?.[1]?.trim();
+  const match = text.match(
+    /(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*(.+)/i
+  );
+  const raw = match?.[1]?.trim() || "";
+  const target = raw.split(/[—\-?!.,]+|\s+(?:and|then|what'?s|is|are|do|does|tell)\b/)[0].trim();
+  return target.replace(/^(?:the|my|a|an)\s+/i, "").trim() || null;
 }
 
 function resolveDMGuild(client, author, query) {
@@ -53,11 +58,39 @@ function resolveDMGuild(client, author, query) {
   return matches;
 }
 
-async function callAgent({ client, message }) {
+class TimedMap {
+  constructor(ttlMs) {
+    this.ttlMs = ttlMs;
+    this.map = new Map();
+    this.timers = new Map();
+  }
+
+  set(key, value) {
+    this.map.set(key, value);
+    if (this.timers.has(key)) clearTimeout(this.timers.get(key));
+    this.timers.set(
+      key,
+      setTimeout(() => {
+        this.map.delete(key);
+        this.timers.delete(key);
+      }, this.ttlMs)
+    );
+  }
+
+  get(key) {
+    return this.map.get(key);
+  }
+
+  has(key) {
+    return this.map.has(key);
+  }
+}
+
+async function callAgent({ client, message, dmResolvedGuild }) {
   return retry(
     async (bail) => {
       try {
-        return await processWithAgent({ client, message });
+        return await processWithAgent({ client, message, dmResolvedGuild });
       } catch (err) {
         if (!isRetryable(err)) bail(err);
         throw err;
@@ -73,7 +106,8 @@ async function callAgent({ client, message }) {
   );
 }
 
-const lastDMGuild = new Map();
+const DM_GUILD_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const lastDMGuild = new TimedMap(DM_GUILD_TTL_MS);
 
 export async function onMessage(message) {
   if (message.author.bot) return;
@@ -81,6 +115,8 @@ export async function onMessage(message) {
   if (!isDM && !message.mentions.has(message.client.user)) return;
 
   const { client, author, content = "" } = message;
+  let dmResolvedGuild = null;
+
   if (isDM) {
     const memberGuilds = client.guilds.cache.filter((guild) =>
       guild.members.cache.has(author.id)
@@ -99,6 +135,7 @@ export async function onMessage(message) {
       const matches = resolveDMGuild(client, author, requestedSwitch);
       if (matches.length === 1) {
         lastDMGuild.set(author.id, matches[0].id);
+        dmResolvedGuild = matches[0];
         await message.reply(
           `Switched DM context to server "${matches[0].name}". Go ahead.`
         ).catch(() => {});
@@ -121,6 +158,7 @@ export async function onMessage(message) {
 
       if (matches.length === 1) {
         lastDMGuild.set(author.id, matches[0].id);
+        dmResolvedGuild = matches[0];
         await message.reply(
           `Switched DM context to server "${matches[0].name}".`
         ).catch(() => {});
@@ -130,6 +168,7 @@ export async function onMessage(message) {
           `I'm already in "${exactMatch.name}". That also matches potential servers: ${names}. Use the full server name to switch.`
         ).catch(() => {});
         lastDMGuild.set(author.id, exactMatch.id);
+        dmResolvedGuild = exactMatch;
       } else if (matches.length === 0) {
         await message.reply(
           `I couldn't find that server in your shared servers.`
@@ -148,13 +187,15 @@ export async function onMessage(message) {
         `DM received, but I don't know which project/server yet. Mention me in that server first, or reply with its server name so I can pick the right project. Your servers: ${names}`
       ).catch(() => {});
       return;
+    } else if (cachedGuildId) {
+      dmResolvedGuild = memberGuilds.find((g) => g.id === cachedGuildId) || null;
     }
   } else if (message.guild?.id && author?.id) {
     lastDMGuild.set(author.id, message.guild.id);
   }
 
   try {
-    const response = await callAgent({ client, message });
+    const response = await callAgent({ client, message, dmResolvedGuild });
     if (response?.trim()) {
       try {
         await message.reply(response);

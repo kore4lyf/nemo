@@ -1,6 +1,6 @@
 
 
-export function extractContext({ client, message }) {
+export function extractContext({ client, message, fallbackGuildId }) {
   if (!client || !message) {
     return {
       currentChannel: null,
@@ -13,7 +13,7 @@ export function extractContext({ client, message }) {
     currentChannel: {
       id: message.channel?.id ?? null,
       name: message.channel?.name ?? null,
-      guildId: message.guild?.id ?? null,
+      guildId: message.guild?.id ?? fallbackGuildId ?? null,
     },
     currentMessage: {
       id: message.id ?? null,

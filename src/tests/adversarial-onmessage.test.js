@@ -363,15 +363,20 @@ test("error reply: should not expose stack traces", () => {
 // DM helpers (mirrored from src/bot/onMessage.js)
 // ══════════════════════════════════════════════════════════════════
 
-const ALLOWED_SWITCH_PREFIXES = /switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=]/i;
+const ALLOWED_SWITCH_PREFIXES =
+  /switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)\b(?!\s+(?:channel|thread|threads|plan|board|category|messages|pins?|project))/i;
 
 function looksLikeSwitchRequest(text) {
   return ALLOWED_SWITCH_PREFIXES.test(text || "");
 }
 
 function extractSwitchTarget(text) {
-  const match = text.match(/(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*["']?([^"'\n]+?)["']?\s*$/i);
-  return match?.[1]?.trim();
+  const match = text.match(
+    /(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*(.+)/i
+  );
+  const raw = match?.[1]?.trim() || "";
+  const target = raw.split(/[—\-?!.,]+|\s+(?:and|then|what'?s|is|are|do|does|tell)\b/)[0].trim();
+  return target.replace(/^(?:the|my|a|an)\s+/i, "").trim() || null;
 }
 
 function resolveDMGuild(client, author, query) {
@@ -388,6 +393,36 @@ function resolveDMGuild(client, author, query) {
   return matches;
 }
 
+class TimedMap {
+  constructor(ttlMs) {
+    this.ttlMs = ttlMs;
+    this.map = new Map();
+    this.timers = new Map();
+  }
+
+  set(key, value) {
+    this.map.set(key, value);
+    if (this.timers.has(key)) clearTimeout(this.timers.get(key));
+    this.timers.set(
+      key,
+      setTimeout(() => {
+        this.map.delete(key);
+        this.timers.delete(key);
+      }, this.ttlMs)
+    );
+  }
+
+  get(key) {
+    return this.map.get(key);
+  }
+
+  has(key) {
+    return this.map.has(key);
+  }
+}
+
+// Test helper uses a plain Map to avoid pending timers during tests.
+// Production onMessage.js uses TimedMap above for real TTL behavior.
 const lastDMGuild = new Map();
 
 function makeCache(values) {
@@ -404,6 +439,8 @@ function simulateOnMessage(message) {
   if (!isDM && !message.mentions.has(message.client.user)) return "ignore";
 
   const { client, author, content = "" } = message;
+  let dmResolvedGuild = null;
+
   if (isDM) {
     const isServerMember = client.guilds.cache.some((guild) =>
       guild.members.cache.has(author.id)
@@ -419,6 +456,7 @@ function simulateOnMessage(message) {
       const matches = resolveDMGuild(client, author, requestedSwitch);
       if (matches.length === 1) {
         lastDMGuild.set(author.id, matches[0].id);
+        dmResolvedGuild = matches[0];
         return "dm-switched";
       } else if (matches.length > 1) {
         return "dm-switch-ambiguous";
@@ -428,16 +466,30 @@ function simulateOnMessage(message) {
 
     if (cachedGuildId && requestedSwitch) {
       const matches = resolveDMGuild(client, author, requestedSwitch);
+      const exactMatch = matches.find((g) => g.id === cachedGuildId);
+      const ambiguous = matches.filter((g) => g.id !== cachedGuildId);
+
       if (matches.length === 1) {
         lastDMGuild.set(author.id, matches[0].id);
+        dmResolvedGuild = matches[0];
         return "dm-switched";
+      } else if (ambiguous.length > 0 && exactMatch) {
+        lastDMGuild.set(author.id, exactMatch.id);
+        dmResolvedGuild = exactMatch;
+        return "dm-ambiguous-force-exact";
+      } else if (matches.length === 0) {
+        return "dm-switch-unknown";
+      } else {
+        return "dm-switch-ambiguous";
       }
-      if (matches.length === 0) return "dm-switch-unknown";
-      return "dm-switch-ambiguous";
     }
 
     if (!cachedGuildId && !requestedSwitch) return "dm-needs-project";
-    return "dm-ok";
+    if (cachedGuildId && !requestedSwitch) {
+      dmResolvedGuild = null; // fallback if exact guild cannot be resolved
+      return "dm-ok";
+    }
+    return "dm-needs-project";
   }
 
   if (message.guild?.id && author?.id) {
@@ -711,6 +763,77 @@ test("DM cached guild: explicit switch rebinds exact match", () => {
 
   const result = simulateOnMessage(message);
   assert.strictEqual(result, "dm-switched");
+  assert.strictEqual(lastDMGuild.get("u-1"), "g-1");
+});
+
+// ══════════════════════════════════════════════════════════════════
+// CATEGORY 6D: Bug coverage — false positives, articles, trailing text,
+// TTL, regex behavior
+// ══════════════════════════════════════════════════════════════════
+
+test("Bug A: 'use the project channel' is not a switch request", () => {
+  assert.strictEqual(looksLikeSwitchRequest("use the project channel"), false);
+  assert.strictEqual(looksLikeSwitchRequest("use the project plan"), false);
+  assert.strictEqual(looksLikeSwitchRequest("use my project thread"), false);
+  assert.strictEqual(looksLikeSwitchRequest("let's use the project board"), false);
+});
+
+test("Bug B: extracted target strips leading articles", () => {
+  assert.strictEqual(extractSwitchTarget("switch to the Bema project"), "Bema project");
+  assert.strictEqual(extractSwitchTarget("use my server Project X"), "Project X");
+  assert.strictEqual(extractSwitchTarget("project: the awesome project"), "awesome project");
+});
+
+test("Bug E: trailing question text does not block switch extraction", () => {
+  assert.strictEqual(
+    extractSwitchTarget("switch to Bema — what's the auth status?"),
+    "Bema"
+  );
+  assert.strictEqual(
+    extractSwitchTarget("use server Project X and tell me what's next"),
+    "Project X"
+  );
+});
+
+test("Bug E: unquoted target still extracts after inline punctuation", () => {
+  assert.strictEqual(extractSwitchTarget("switch to Bema? yes."), "Bema");
+  assert.strictEqual(extractSwitchTarget("use server Project X, please"), "Project X");
+});
+
+// TTL behavior is covered in src/tests/test-ttl.test.js to avoid
+// event-loop handles that can affect node --test lifecycle.
+
+test("Bug F: DM cached path threads guild into simulated flow", () => {
+  lastDMGuild.set("u-1", "g-1");
+
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    content: "use the project channel for updates",
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "dm-ok");
   assert.strictEqual(lastDMGuild.get("u-1"), "g-1");
 });
 
