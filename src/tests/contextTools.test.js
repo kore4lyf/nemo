@@ -16,6 +16,7 @@ import {
   getChannelInfo,
   checkProjectChannels,
   getEvents,
+  searchMessages,
 } from "../discord/tools/index.js";
 
 // ── Mock Discord client with permission bitfield ───────────────────
@@ -74,6 +75,35 @@ function mockContextClient(overrides = {}) {
         ],
         size: 1,
       }),
+    },
+    scheduledEvents: {
+      fetch: async () =>
+        new Map([
+          [
+            "evt-1",
+            {
+              id: "evt-1",
+              name: "Sprint Planning",
+              description: "Weekly sprint planning",
+              scheduledStartTime: new Date(Date.now() + 86400000),
+              status: "SCHEDULED",
+              entityType: "VOICE",
+              creatorId: "u-1",
+            },
+          ],
+          [
+            "evt-2",
+            {
+              id: "evt-2",
+              name: "Retro",
+              description: "Sprint retro",
+              scheduledStartTime: new Date(Date.now() - 86400000),
+              status: "COMPLETED",
+              entityType: "VOICE",
+              creatorId: "u-2",
+            },
+          ],
+        ]),
     },
   };
 
@@ -213,19 +243,399 @@ test("get_channel_info schema rejects empty channelId", () => {
   assert.ok(!r.success);
 });
 
-console.log("✅ All context-tool schema tests passed!");
+test("check_project_channels behavior returns existing and missing", async () => {
+  const tool = checkProjectChannels({ client: mockContextClient() });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, true);
+  assert.ok(Array.isArray(result.existing));
+  assert.ok(Array.isArray(result.missing));
+});
+
+// ── get_members behavior ──────────────────────────────────
+test("get_members behavior excludes bots and returns normalized members", async () => {
+  const tool = getMembers({ client: mockContextClient() });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, true);
+  const members = result.members;
+  assert.ok(Array.isArray(members));
+  assert.ok(members.every((m) => !m.username.toLowerCase().includes("nemo")));
+  const alice = members.find((m) => m.username === "alice");
+  assert.ok(alice);
+  assert.ok(alice.roles.length > 0);
+});
+
+// ── get_events behavior ──────────────────────────────────
+test("get_events behavior returns upcoming/past split for default status", async () => {
+  const tool = getEvents({ client: mockContextClient() });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, true);
+  assert.ok(Array.isArray(result.upcoming));
+  assert.ok(Array.isArray(result.past));
+  assert.ok(
+    result.upcoming.some((e) => e.name === "Sprint Planning")
+  );
+  assert.ok(
+    result.past.some((e) => e.name === "Retro")
+  );
+});
+
+test("get_events behavior filters upcoming status", async () => {
+  const tool = getEvents({ client: mockContextClient() });
+  const result = await tool.invoke({
+    guildId: "g-1",
+    status: "upcoming",
+  });
+  assert.strictEqual(result.success, true);
+  assert.ok(Array.isArray(result.upcoming));
+  assert.strictEqual(result.past.length, 0);
+});
+
+test("get_events behavior filters past status", async () => {
+  const tool = getEvents({ client: mockContextClient() });
+  const result = await tool.invoke({ guildId: "g-1", status: "past" });
+  assert.strictEqual(result.success, true);
+  assert.ok(Array.isArray(result.past));
+  assert.strictEqual(result.upcoming.length, 0);
+});
+
+test("get_events behavior sorts upcoming ascending", async () => {
+  const tool = getEvents({ client: mockContextClient() });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, true);
+  const times = result.upcoming.map((e) => new Date(e.scheduledStartTime).getTime());
+  for (let i = 1; i < times.length; i++) {
+    assert.ok(times[i] >= times[i - 1]);
+  }
+});
+
+test("get_events behavior sorts past descending", async () => {
+  const tool = getEvents({ client: mockContextClient() });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, true);
+  const times = result.past.map((e) => new Date(e.scheduledStartTime).getTime());
+  for (let i = 1; i < times.length; i++) {
+    assert.ok(times[i] <= times[i - 1]);
+  }
+});
+
+// ── behavior edge: missing permission path ───────────────
+test("get_events denies when ViewChannel is missing", async () => {
+  const noPermClient = mockContextClient({
+    channels: {
+      fetch: async () => ({
+        id: "ch-1",
+        type: 0,
+        name: "test-channel",
+        isThread: () => false,
+        memberCount: 10,
+        guild: {
+          id: "g-1",
+          members: {
+            resolve: () => ({
+              id: "bot-123",
+              permissions: { has: () => false, bitfield: 0n },
+            }),
+          },
+        },
+        messages: {
+          fetchPins: async () => new Map(),
+          fetch: async () => ({ size: 0, values: () => [] }),
+        },
+      }),
+    },
+  });
+  const tool = getEvents({ client: noPermClient });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, false);
+  assert.ok(result.error?.includes("Missing permission"));
+});
+
+test("check_project_channels denies when ViewChannel is missing", async () => {
+  const noPermClient = mockContextClient({
+    channels: {
+      fetch: async () => ({
+        id: "ch-1",
+        type: 0,
+        name: "test-channel",
+        isThread: () => false,
+        memberCount: 10,
+        guild: {
+          id: "g-1",
+          members: {
+            resolve: () => ({
+              id: "bot-123",
+              permissions: { has: () => false, bitfield: 0n },
+            }),
+          },
+        },
+        messages: {
+          fetchPins: async () => new Map(),
+          fetch: async () => ({ size: 0, values: () => [] }),
+        },
+      }),
+    },
+  });
+  const tool = checkProjectChannels({ client: noPermClient });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, false);
+  assert.ok(result.error?.includes("Missing permission"));
+});
+
+test("get_members denies when ViewChannel is missing", async () => {
+  const noPermClient = mockContextClient({
+    channels: {
+      fetch: async () => ({
+        id: "ch-1",
+        type: 0,
+        name: "test-channel",
+        isThread: () => false,
+        memberCount: 10,
+        guild: {
+          id: "g-1",
+          members: {
+            resolve: () => ({
+              id: "bot-123",
+              permissions: { has: () => false, bitfield: 0n },
+            }),
+          },
+        },
+        messages: {
+          fetchPins: async () => new Map(),
+          fetch: async () => ({ size: 0, values: () => [] }),
+        },
+      }),
+    },
+  });
+  const tool = getMembers({ client: noPermClient });
+  const result = await tool.invoke({ guildId: "g-1" });
+  assert.strictEqual(result.success, false);
+  assert.ok(result.error?.includes("Missing permission"));
+});
+
+console.log("✅ All context-tool behavior tests passed!");
 
 // ── check_project_channels ──────────────────────────────
-test("check_project_channels schema requires guildId", () => {
-  const tool = checkProjectChannels({ client: mockContextClient() });
-  const r = tool.schema.safeParse({});
-  assert.ok(!r.success);
+
+// ── search_messages helper ────────────────────────────
+function createMessageCollection(msgs) {
+  const arr = msgs.map((m) => ({
+    id: m.id,
+    author: { id: m.authorId, username: m.author, bot: m.bot || false },
+    content: m.content,
+    createdTimestamp: Date.parse(m.createdAt),
+    createdAt: new Date(Date.parse(m.createdAt)),
+  }));
+  return {
+    size: arr.length,
+    values: () => arr.values(),
+    last: () => arr[arr.length - 1],
+    [Symbol.iterator]: () => arr.values(),
+  };
+}
+
+function searchMockClient(messages) {
+  const ALL_PERMS = 0x1FFFFFFFFFFFFFn;
+  const fakeMember = {
+    id: "bot-123",
+    permissions: { has: () => true, bitfield: ALL_PERMS },
+  };
+
+  const channel = {
+    id: "ch-1",
+    send: async () => ({ id: "notice-1", delete: async () => {} }),
+    messages: {
+      fetch: async ({ before } = {}) => {
+        let start = 0;
+        if (before) {
+          const idx = messages.findIndex((m) => m.id === before);
+          if (idx >= 0) start = idx + 1;
+        }
+        const page = messages.slice(start, start + 100);
+        return createMessageCollection(page);
+      },
+    },
+    guild: {
+      id: "g-1",
+      members: { resolve: (uid) => (uid === "bot-123" ? fakeMember : null) },
+    },
+  };
+
+  return {
+    user: { id: "bot-123" },
+    guilds: { fetch: async () => ({ channels: { cache: { first: () => ({ id: "ch-1" }) } } }) },
+    channels: { fetch: async () => channel },
+  };
+}
+
+// ── search_messages schema ────────────────────────────
+test("search_messages schema requires channelId and query", () => {
+  const tool = searchMessages({ client: mockContextClient() });
+  assert.ok(!tool.schema.safeParse({}).success);
+  assert.ok(!tool.schema.safeParse({ channelId: "ch-1" }).success);
+  assert.ok(!tool.schema.safeParse({ query: "api" }).success);
+  assert.ok(tool.schema.safeParse({ channelId: "ch-1", query: "api" }).success);
+  assert.ok(tool.schema.safeParse({ channelId: "ch-1", query: "api", author: "alice" }).success);
 });
 
-// ── get_events ──────────────────────────────────────────
-test("get_events schema requires guildId", () => {
-  const tool = getEvents({ client: mockContextClient() });
-  const r = tool.schema.safeParse({});
-  assert.ok(!r.success);
+// ── search_messages behavior ──────────────────────────
+test("search_messages behavior splits and filters matches", async () => {
+  const history = [
+    { id: "m-1", authorId: "u-1", author: "alice", content: "deploy api plan", createdAt: new Date(Date.now() - 3000).toISOString(), bot: false },
+    { id: "m-2", authorId: "u-2", author: "bob", content: "api is blocked", createdAt: new Date(Date.now() - 2000).toISOString(), bot: false },
+    { id: "m-3", authorId: "u-b", author: "Nemo", content: "release scheduled", createdAt: new Date(Date.now() - 1000).toISOString(), bot: true },
+  ];
+  const client = searchMockClient(history);
+  const tool = searchMessages({ client });
+  const result = await tool.invoke({ channelId: "ch-1", query: "api" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.scanned, 3);
+  assert.strictEqual(result.truncated, false);
+  assert.ok(Array.isArray(result.matches));
+  assert.strictEqual(result.matches.length, 2);
+  assert.ok(result.matches.every((m) => m.content.toLowerCase().includes("api")));
+  assert.ok(result.matches.every((m) => m.author !== "Nemo"));
 });
 
+test("search_messages behavior filters exact author id and username", async () => {
+  const history = [
+    { id: "m-1", authorId: "123456789012345678", author: "Tunde", content: "api issue", createdAt: new Date(Date.now() - 1000).toISOString(), bot: false },
+    { id: "m-2", authorId: "987654321098765432", author: "Tunde", content: "not api", createdAt: new Date(Date.now() - 2000).toISOString(), bot: false },
+  ];
+  const client = searchMockClient(history);
+  const tool = searchMessages({ client });
+
+  const byId = await tool.invoke({ channelId: "ch-1", query: "api", author: "123456789012345678" });
+  assert.strictEqual(byId.success, true);
+  assert.strictEqual(byId.matches.length, 1);
+  assert.strictEqual(byId.matches[0].authorId, "123456789012345678");
+
+  const byName = await tool.invoke({ channelId: "ch-1", query: "api", author: "tunde" });
+  assert.strictEqual(byName.success, true);
+  assert.strictEqual(byName.matches.length, 2);
+});
+
+test("search_messages behavior respects 200-message ceiling", async () => {
+  const history = Array.from({ length: 150 }, (_, i) => ({
+    id: `m-${i}`,
+    authorId: `u-${i}`,
+    author: `user-${i}`,
+    content: i % 3 === 0 ? "api" : "other",
+    createdAt: new Date(Date.now() - i * 1000).toISOString(),
+    bot: false,
+  }));
+  const client = searchMockClient(history);
+  const tool = searchMessages({ client });
+  const result = await tool.invoke({ channelId: "ch-1", query: "api" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.scanned, 150);
+  assert.strictEqual(result.truncated, false);
+  assert.ok(result.matches.length > 0);
+});
+
+test("search_messages behavior truncates when ceiling exceeds 200", async () => {
+  const history = Array.from({ length: 250 }, (_, i) => ({
+    id: `m-${i}`,
+    authorId: `u-${i}`,
+    author: `user-${i}`,
+    content: i % 2 === 0 ? "api" : "other",
+    createdAt: new Date(Date.now() - i * 1000).toISOString(),
+    bot: false,
+  }));
+  const client = searchMockClient(history);
+  const tool = searchMessages({ client });
+  const result = await tool.invoke({ channelId: "ch-1", query: "api" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.scanned, 200);
+  assert.strictEqual(result.truncated, true);
+});
+
+test("search_messages behavior returns empty non-truncated when no history", async () => {
+  const client = searchMockClient([]);
+  const tool = searchMessages({ client });
+  const result = await tool.invoke({ channelId: "ch-1", query: "api" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.scanned, 0);
+  assert.strictEqual(result.truncated, false);
+  assert.ok(Array.isArray(result.matches));
+  assert.strictEqual(result.matches.length, 0);
+});
+
+test("search_messages behavior continues when notice send fails", async () => {
+  const history = [
+    { id: "m-1", authorId: "u-1", author: "alice", content: "bot hello", createdAt: new Date(Date.now() - 1000).toISOString(), bot: true },
+  ];
+  const client = {
+    user: { id: "bot-123" },
+    guilds: { fetch: async () => ({ channels: { cache: { first: () => ({ id: "ch-1" }) } } }) },
+    channels: {
+      fetch: async () => ({
+        id: "ch-1",
+        send: async () => {
+          throw new Error("no send");
+        },
+        messages: {
+          fetch: async ({ before } = {}) => {
+            let start = 0;
+            if (before) {
+              const idx = history.findIndex((m) => m.id === before);
+              if (idx >= 0) start = idx + 1;
+            }
+            const page = history.slice(start, start + 100);
+            return createMessageCollection(page);
+          },
+        },
+        guild: {
+          id: "g-1",
+          members: { resolve: (uid) => (uid === "bot-123" ? { id: "bot-123", permissions: { has: () => true, bitfield: 0x1FFFFFFFFFFFFFn } } : null) },
+        },
+      }),
+    },
+  };
+  const tool = searchMessages({ client });
+  const result = await tool.invoke({ channelId: "ch-1", query: "hello" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.scanned, 1);
+  assert.strictEqual(result.truncated, false);
+  assert.ok(Array.isArray(result.matches));
+  assert.strictEqual(result.matches.length, 0);
+});
+
+test("search_messages behavior continues when notice delete fails", async () => {
+  const history = [
+    { id: "m-1", authorId: "u-1", author: "alice", content: "hello world", createdAt: new Date(Date.now() - 1000).toISOString(), bot: false },
+  ];
+  const client = {
+    user: { id: "bot-123" },
+    guilds: { fetch: async () => ({ channels: { cache: { first: () => ({ id: "ch-1" }) } } }) },
+    channels: {
+      fetch: async () => ({
+        id: "ch-1",
+        send: async () => ({ id: "notice-1", delete: async () => { throw new Error("no delete"); } }),
+        messages: {
+          fetch: async ({ before } = {}) => {
+            let start = 0;
+            if (before) {
+              const idx = history.findIndex((m) => m.id === before);
+              if (idx >= 0) start = idx + 1;
+            }
+            const page = history.slice(start, start + 100);
+            return createMessageCollection(page);
+          },
+        },
+        guild: {
+          id: "g-1",
+          members: { resolve: (uid) => (uid === "bot-123" ? { id: "bot-123", permissions: { has: () => true, bitfield: 0x1FFFFFFFFFFFFFn } } : null) },
+        },
+      }),
+    },
+  };
+  const tool = searchMessages({ client });
+  const result = await tool.invoke({ channelId: "ch-1", query: "hello" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.scanned, 1);
+  assert.strictEqual(result.truncated, false);
+  assert.strictEqual(result.matches.length, 1);
+  assert.strictEqual(result.matches[0].content, "hello world");
+});
+
+console.log("✅ All context-tool behavior tests passed!");
