@@ -392,7 +392,7 @@ nemo/
 ## Security Notes
 
 - **Never commit your `.env`** — it is in `.gitignore`.
-- The bot only acts on messages it can see; it does not read DMs unless the user explicitly opts in via intents.
+- DMs are supported for server members only. Nemo uses a lightweight last-seen-server memory to guess the project context, but if that context is missing it will ask for clarification instead of guessing.
 - Tool execution is permission-gated at the Discord role level — the bot can only do what your server allows.
 - Keep your `DISCORD_TOKEN` and `OPENAI_API_KEY` private. Rotate them if exposed.
 
@@ -400,11 +400,22 @@ nemo/
 
 ## Troubleshooting
 
-- **Nemo doesn't reply** — Make sure the bot is mentioned and has Message Content Intent enabled in the Discord Developer Portal.
+- **Nemo doesn't reply in DMs** — Make sure the DM sender is a member of at least one server with Nemo, and that they have mentioned Nemo there at least once so a last-seen server is cached.
 - **Permission errors** — The bot needs `Read Message History` for milestone/thread tools and `Manage Channels` for `create_project_channels`.
 - **Missing `.env` values** — Startup validation will fail loudly if required variables are absent. Check your `.env` and restart.
 - **LLM errors** — Check `OPENAI_BASE_URL`, `OPENAI_MODEL`, and your API key. Nemo reports tool or LLM call failures as normal replies when possible.
 - **Slow replies** — Nemo may fetch recent channel history and then run up to 6 LLM iterations with tool calls. On busy servers, replies can take longer than a simple bot.
+
+---
+
+## Direct Messages
+
+Nemo supports DMs, but with a narrower contract than server channels.
+
+- **Server membership required** — DMs from non-members are ignored.
+- **Last-seen server heuristic** — Nemo remembers the last server where a user mentioned it, and uses that as the default project context in DMs.
+- **No cached project yet** — If there is no last-seen server for the user, Nemo replies with a short prompt asking them to mention Nemo in the relevant server first.
+- **Guild-specific tools still need a server** — Some actions, like milestone reads or project-channel setup, remain tied to a specific guild. In ambiguous cases, Nemo will ask which project before acting.
 
 ---
 

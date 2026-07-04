@@ -48,6 +48,8 @@ async function callAgent({ client, message }) {
   );
 }
 
+const lastDMGuild = new Map();
+
 export async function onMessage(message) {
   if (message.author.bot) return;
   const isDM = !message.guild;
@@ -62,6 +64,16 @@ export async function onMessage(message) {
       logger.debug("Ignored DM from non-server member:", author.id);
       return;
     }
+
+    const cachedGuildId = lastDMGuild.get(author.id);
+    if (!cachedGuildId) {
+      await message.reply(
+        "DM received, but I don't know which project/server yet. Mention me in that server first, or reply with its server name so I can pick the right project."
+      ).catch(() => {});
+      return;
+    }
+  } else if (message.guild?.id && author?.id) {
+    lastDMGuild.set(author.id, message.guild.id);
   }
 
   try {

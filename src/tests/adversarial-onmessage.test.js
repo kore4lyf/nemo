@@ -355,4 +355,148 @@ test("error reply: should not expose stack traces", () => {
   assert.ok(!userMessage.includes("at /src/"), "Should not include stack trace");
 });
 
+// ══════════════════════════════════════════════════════════════════
+// CATEGORY 6: DM Routing and Last-Seen Guild Behavior
+// ══════════════════════════════════════════════════════════════════
+
+const lastDMGuild = new Map();
+
+function makeCache(values) {
+  return {
+    some: (predicate) => [...values.values()].some(predicate),
+    values: () => values.values(),
+    has: (id) => values.has(id),
+  };
+}
+
+function simulateOnMessage(message) {
+  if (message.author.bot) return "ignore";
+  const isDM = !message.guild;
+  if (!isDM && !message.mentions.has(message.client.user)) return "ignore";
+
+  const { client, author } = message;
+  if (isDM) {
+    const isServerMember = client.guilds.cache.some((guild) =>
+      guild.members.cache.has(author.id)
+    );
+    if (!isServerMember) return "ignore-non-member";
+
+    const cachedGuildId = lastDMGuild.get(author.id);
+    if (!cachedGuildId) return "dm-needs-project";
+    return "dm-ok";
+  }
+
+  if (message.guild?.id && author?.id) {
+    lastDMGuild.set(author.id, message.guild.id);
+  }
+  return "guild-ok";
+}
+
+test("DM: non-server member should be ignored", () => {
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                members: {
+                  cache: new Map([
+                    ["u-2", { id: "u-2" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "ignore-non-member");
+});
+
+test("DM: server member without cached guild should prompt project selection", () => {
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "dm-needs-project");
+});
+
+test("DM: server member with cached guild should proceed", () => {
+  lastDMGuild.set("u-1", "g-1");
+
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "dm-ok");
+});
+
+test("guild message: should update last seen guild for DM context", () => {
+  lastDMGuild.delete("u-1");
+
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: { id: "g-1" },
+    mentions: { has: () => true },
+    client: { user: { id: "bot-1" } }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "guild-ok");
+  assert.strictEqual(lastDMGuild.get("u-1"), "g-1");
+});
+
 console.log("✅ Adversarial onMessage tests complete");
