@@ -109,6 +109,8 @@ async function callAgent({ client, message, dmResolvedGuild }) {
 const DM_GUILD_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const lastDMGuild = new TimedMap(DM_GUILD_TTL_MS);
 
+export { lastDMGuild, resolveDMGuild };
+
 export async function onMessage(message) {
   if (message.author.bot) return;
   const isDM = !message.guild;

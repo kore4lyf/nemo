@@ -1,8 +1,32 @@
 import "dotenv/config";
 import "./config/env.js";
-import { Client, GatewayIntentBits, Events } from "discord.js";
+import { Client, GatewayIntentBits, Events, REST, Routes } from "discord.js";
 import { logger } from "./config/logger.js";
 import { onMessage } from "./bot/onMessage.js";
+import { handleInteraction } from "./bot/interactions.js";
+import { commands } from "./discord/commands/index.js";
+
+async function registerCommands(client) {
+  try {
+    const applicationId = client.user?.id;
+    if (!applicationId) {
+      logger.warn("Skipping slash command registration; no application id yet.");
+      return;
+    }
+
+    const body = commands.map((command) => command.toJSON());
+
+    const rest = new REST().setToken(process.env.DISCORD_TOKEN);
+
+    logger.info(`Registering ${body.length} slash commands...`);
+    await rest.put(Routes.applicationCommands(applicationId), {
+      body,
+    });
+    logger.info("Slash commands registered.");
+  } catch (err) {
+    logger.error("Slash command registration failed:", err.message || err);
+  }
+}
 
 async function main() {
   logger.info("Nemo starting...");
@@ -17,8 +41,9 @@ async function main() {
     rest: { timeout: 30_000 },
   });
 
-  client.once(Events.ClientReady, (readyClient) => {
+  client.once(Events.ClientReady, async (readyClient) => {
     logger.info(`Logged in as ${readyClient.user.tag}`);
+    await registerCommands(readyClient);
   });
 
   client.on(Events.ShardDisconnect, (event, shardId) => {
@@ -38,6 +63,7 @@ async function main() {
   });
 
   client.on(Events.MessageCreate, onMessage);
+  client.on(Events.InteractionCreate, handleInteraction);
 
   const token = process.env.DISCORD_TOKEN;
   if (!token) {
