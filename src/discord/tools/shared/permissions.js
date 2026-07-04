@@ -10,7 +10,7 @@ const PermissionsBitField = {
   [PERMS.MANAGE_MESSAGES]: 0x2000n,
   [PERMS.MANAGE_CHANNELS]: 0x10n,
   [PERMS.CREATE_PUBLIC_THREADS]: 0x8n,
-  [PERMS.CREATE_PRIVATE_THREADS]: 0x10000000000n,
+  [PERMS.CREATE_PRIVATE_THREADS]: 0x10n,
   [PERMS.READ_MESSAGE_HISTORY]: 0x10000n,
   // Legacy keys preserved for back-compat with older callers/tests
   ReadMessageHistory: 0x10000n,

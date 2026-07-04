@@ -23,12 +23,36 @@ export async function processWithAgent({ client, message }) {
   // Extract Discord context (channel, message, author, mentions)
   const context = extractContext({ client, message });
 
+  // Fetch the last 20 messages from this channel so Nemo has conversation
+  // awareness — who said what, what was decided, what was discussed.
+  // This is the simplest memory: raw recent context, no indexing, no tools.
+  let recentConversation = "";
+  try {
+    if (context.currentChannel?.id) {
+      const channel = await client.channels.fetch(context.currentChannel.id);
+      const recent = await channel.messages.fetch({ limit: 20 });
+      recentConversation = [...recent.values()]
+        .reverse()
+        .map((m) => {
+          const author = m.author?.username ?? m.author?.id ?? "unknown";
+          const content = (m.content ?? "").slice(0, 500);
+          return `  [${author}]: ${content}`;
+        })
+        .join("\n");
+    }
+  } catch (err) {
+    // Non-fatal: if we can't fetch recent messages, continue without them.
+    logger.warn("Could not fetch recent messages for context:", err.message);
+  }
+
   // Tool-name lookup map for the ReAct loop
   const toolMap = Object.fromEntries(tools.map((t) => [t.name, t]));
 
-  const systemContent = [
-    getSystemPrompt(),
-    "",
+  // System prompt = persistent AGENTS.md payload (persona, voice, rules,
+  // project-manager behavior) + a small per-message Context block with the
+  // channel / guild / message IDs the tools may need. AGENTS.md is the
+  // only place persona + behavior live; this block is state, not persona.
+  const contextLines = [
     "Context:",
     `  Channel: ${context.currentChannel?.name ?? "unknown"} (${context.currentChannel?.id ?? "?"})`,
     `  Guild: ${context.currentChannel?.guildId ?? "?"}`,
@@ -36,9 +60,17 @@ export async function processWithAgent({ client, message }) {
     `  Current message author: ${context.currentMessage?.author ?? "unknown"}`,
     `  Current message content: ${context.currentMessage?.content ?? ""}`,
     `  Mentioned users: ${context.mentionedUsers?.map((u) => `${u.name} (${u.id})`).join(", ") || "none"}`,
-  ].join("\n");
+  ];
 
-  const systemMessage = new SystemMessage({ content: systemContent });
+  if (recentConversation) {
+    contextLines.push("");
+    contextLines.push("  Recent conversation (last 20 messages):")
+    contextLines.push(recentConversation);
+  }
+
+  const systemMessage = new SystemMessage({
+    content: [getSystemPrompt(), "", contextLines.join("\n")].join("\n"),
+  });
 
   // ReAct loop: LLM decides tool calls → execute → feed results back
   const messages = [systemMessage, new HumanMessage(message.content)];

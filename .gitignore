@@ -8,6 +8,9 @@ TASK.md
 REVIEW.md
 TEST.md
 
+# Planning metadata
+task_plan.md
+
 # Agent channel specs (per-task briefs for developers)
 AGENT-CHANNEL*.md
 

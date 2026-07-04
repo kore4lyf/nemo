@@ -14,7 +14,6 @@ export const TOOLS = {
 
   // Context tools (read-only)
   GET_MEMBERS: "get_members",
-  GET_MEMBER: "get_member",
   GET_CHANNELS: "get_channels",
   GET_CHANNEL_INFO: "get_channel_info",
   GET_PINNED_MESSAGES: "get_pinned_messages",
@@ -24,12 +23,13 @@ export const TOOLS = {
   LIST_THREADS: "list_threads",
   GET_THREAD_HISTORY: "get_thread_history",
   GET_SERVER_STATE: "get_server_state",
+  GET_MILESTONES: "get_milestones",
+  GET_INTRODUCTION: "get_introduction",
 
   // New task 2 tools
   CHECK_PROJECT_CHANNELS: "check_project_channels",
   CREATE_PROJECT_CHANNELS: "create_project_channels",
   GET_EVENTS: "get_events",
-  SEARCH_MESSAGES: "search_messages",
 };
 
 // Permission names (used in permissions.js getRequiredPermission)
@@ -60,7 +60,6 @@ export const TOOL_PERMISSIONS = {
 
   // Context tools
   [TOOLS.GET_MEMBERS]: PERMS.VIEW_CHANNEL,
-  [TOOLS.GET_MEMBER]: PERMS.VIEW_CHANNEL,
   [TOOLS.GET_CHANNELS]: PERMS.VIEW_CHANNEL,
   [TOOLS.GET_CHANNEL_INFO]: PERMS.VIEW_CHANNEL,
   [TOOLS.GET_PINNED_MESSAGES]: PERMS.READ_MESSAGE_HISTORY,
@@ -70,12 +69,13 @@ export const TOOL_PERMISSIONS = {
   [TOOLS.LIST_THREADS]: PERMS.VIEW_CHANNEL,
   [TOOLS.GET_THREAD_HISTORY]: PERMS.READ_MESSAGE_HISTORY,
   [TOOLS.GET_SERVER_STATE]: PERMS.VIEW_CHANNEL,
+  [TOOLS.GET_MILESTONES]: PERMS.READ_MESSAGE_HISTORY,
+  [TOOLS.GET_INTRODUCTION]: PERMS.READ_MESSAGE_HISTORY,
 
   // Task 2 tools
   [TOOLS.CHECK_PROJECT_CHANNELS]: PERMS.VIEW_CHANNEL,
   [TOOLS.CREATE_PROJECT_CHANNELS]: PERMS.MANAGE_CHANNELS,
   [TOOLS.GET_EVENTS]: PERMS.VIEW_CHANNEL,
-  [TOOLS.SEARCH_MESSAGES]: PERMS.READ_MESSAGE_HISTORY,
 };
 
 // Required project channels — hardcoded, matched case-insensitively

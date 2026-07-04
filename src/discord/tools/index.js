@@ -33,6 +33,8 @@ import { threadActions } from "./action/threads.js";
 import { reactionActions } from "./action/reactions.js";
 import { channelActions } from "./action/channels.js";
 import { memberContext } from "./context/members.js";
+import { milestoneContext } from "./context/milestones.js";
+import { introductionContext } from "./context/introductions.js";
 import { channelContext } from "./context/channels.js";
 import { messageContext } from "./context/messages.js";
 import { threadContext } from "./context/threads.js";
@@ -48,6 +50,8 @@ const bindAll = () => {
     ...reactionActions,
     ...channelActions,
     ...memberContext,
+    ...milestoneContext,
+    ...introductionContext,
     ...channelContext,
     ...messageContext,
     ...threadContext,
@@ -71,7 +75,6 @@ export const addReaction = bound.add_reaction;
 export const deleteMessage = bound.delete_message;
 export const editMessage = bound.edit_message;
 export const getMembers = bound.get_members;
-export const getMember = bound.get_member;
 export const getChannels = bound.get_channels;
 export const getChannelInfo = bound.get_channel_info;
 export const getPinnedMessages = bound.get_pinned_messages;
@@ -81,7 +84,8 @@ export const getActiveThreads = bound.get_active_threads;
 export const listThreads = bound.list_threads;
 export const getThreadHistory = bound.get_thread_history;
 export const getServerState = bound.get_server_state;
+export const getMilestones = bound.get_milestones;
+export const getIntroduction = bound.get_introduction;
 export const checkProjectChannels = bound.check_project_channels;
 export const createProjectChannels = bound.create_project_channels;
 export const getEvents = bound.get_events;
-export const searchMessages = bound.search_messages;

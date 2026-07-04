@@ -47,14 +47,25 @@ function makeGuild(overrides = {}) {
       },
     },
     members: {
-      fetch: async () => ({
-        size: 3,
-        values: () => overrides.members ?? [
-          { user: { id: "u-1", username: "alice", bot: false }, nickname: "Ali", roles: { cache: { keys: () => ["r-1"] } }, presence: { status: "online" } },
-          { user: { id: "u-2", username: "bob", bot: false }, nickname: null, roles: { cache: { keys: () => [] } }, presence: { status: "idle" } },
-          { user: { id: "u-bot", username: "Nemo", bot: true }, nickname: null, roles: { cache: { keys: () => [] } } },
-        ],
-      }),
+      fetch: async (id) => {
+        if (typeof id === "string" && id !== "g-1") {
+          const found = (overrides.members ?? [
+            { user: { id: "u-1", username: "alice", bot: false }, nickname: "Ali", roles: { cache: { keys: () => ["r-1"] } }, presence: { status: "online" } },
+            { user: { id: "u-2", username: "bob", bot: false }, nickname: null, roles: { cache: { keys: () => [] } }, presence: { status: "idle" } },
+            { user: { id: "u-bot", username: "Nemo", bot: true }, nickname: null, roles: { cache: { keys: () => [] } } },
+          ]).find((m) => m.user.id === id);
+          if (!found) throw new Error("Unknown member");
+          return found;
+        }
+        return {
+          size: 3,
+          values: () => overrides.members ?? [
+            { user: { id: "u-1", username: "alice", bot: false }, nickname: "Ali", roles: { cache: { keys: () => ["r-1"] } }, presence: { status: "online" } },
+            { user: { id: "u-2", username: "bob", bot: false }, nickname: null, roles: { cache: { keys: () => [] } }, presence: { status: "idle" } },
+            { user: { id: "u-bot", username: "Nemo", bot: true }, nickname: null, roles: { cache: { keys: () => [] } } },
+          ],
+        };
+      },
       resolve: (id) => (id === "bot-123" ? { id: "bot-123", permissions: { has: () => true, bitfield: 0x1FFFFFFFFFFFFFn } } : null),
     },
     scheduledEvents: {
@@ -326,6 +337,31 @@ test("get_members: returns roles as array of IDs", async () => {
   assert.ok(alice);
   assert.ok(Array.isArray(alice.roles));
   assert.ok(alice.roles.includes("r-1"));
+});
+
+test("get_members: memberId returns single-member array with status", async () => {
+  const client = makeClient(V);
+  const result = await getMembersDef.create(client, { guildId: "g-1", memberId: "u-1" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.members.length, 1);
+  assert.strictEqual(result.members[0].id, "u-1");
+  assert.strictEqual(result.members[0].status, "online");
+});
+
+test("get_members: memberId unknown member returns empty array", async () => {
+  const client = makeClient(V);
+  const result = await getMembersDef.create(client, { guildId: "g-1", memberId: "u-404" });
+  assert.strictEqual(result.success, true);
+  assert.deepEqual(result.members, []);
+  assert.strictEqual(result.scanned, 0);
+});
+
+test("get_members: query filters by username or displayName", async () => {
+  const client = makeClient(V);
+  const result = await getMembersDef.create(client, { guildId: "g-1", query: "ali" });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.members.length, 1);
+  assert.strictEqual(result.members[0].username, "alice");
 });
 
 test("get_members: displayName uses nickname fallback", async () => {

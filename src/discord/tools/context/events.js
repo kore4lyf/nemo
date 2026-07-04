@@ -1,6 +1,5 @@
 import { z, ZodError } from "zod";
 import { guildIdField } from "../shared/schemas.js";
-import { hasPermission, getRequiredPermission } from "../shared/permissions.js";
 import { ok, fail } from "../shared/response.js";
 
 function normalizeEvent(e) {
@@ -28,17 +27,7 @@ export const eventContext = [
     async create(client, input) {
       try {
         const guild = await client.guilds.fetch(input.guildId);
-        const perm = getRequiredPermission("get_events");
-        const anyChannel = guild.channels?.cache?.first();
-        if (anyChannel) {
-          const ok2 = await hasPermission({
-            client,
-            channelId: anyChannel.id,
-            permissionName: perm,
-          });
-          if (!ok2) return fail(`Missing permission: ${perm}`);
-        }
-        const events = await guild.scheduledEvents.fetch({ withUserCount: true });
+        const events = await guild.scheduledEvents.fetch({ withSubscribers: true });
 
         const all = [...events.values()].map(normalizeEvent);
 

@@ -1,4 +1,6 @@
 import { memberContext } from "./members.js";
+import { milestoneContext } from "./milestones.js";
+import { introductionContext } from "./introductions.js";
 import { channelContext } from "./channels.js";
 import { messageContext } from "./messages.js";
 import { threadContext } from "./threads.js";
@@ -8,6 +10,8 @@ import { makeTool } from "../shared/factory.js";
 
 export const allContextDefinitions = [
   ...memberContext,
+  ...milestoneContext,
+  ...introductionContext,
   ...channelContext,
   ...messageContext,
   ...threadContext,
