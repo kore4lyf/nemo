@@ -9,7 +9,7 @@ Nemo maintains awareness of your project's state, team structure, objectives, ti
 ## What Nemo Does Right Now
 
 - **Coordination in Discord** — Nemo operates where the team already talks. It creates threads, pins references, routes updates, and summarizes channel state without leaving Discord.
-- **Read-only cartographer** — Nemo can inspect channels, messages, threads, members, introductions, milestones, events, and server overviews using 23 tools.
+- **Read-only cartographer** — Nemo can inspect channels, messages, threads, members, introductions, milestones, events, and server overviews using 24 tools.
 - **Agentic action layer** — With mention-only triggers and a 6-iteration ReAct loop, Nemo decides whether to act, read, or reply based on live server state.
 - **Permission-respecting** — Every tool is gated by actual Discord permissions. Missing permissions are reported cleanly; no silent failures.
 - **Resilient invocation** — Async retry with backoff for transient failures, structured logging, early env validation, and adversarial test coverage.
@@ -40,7 +40,7 @@ If both are true, the request enters the handler in `src/bot/onMessage.js`.
 1. **Receive** — Discord gateway delivers a `MessageCreate` event.
 2. **Filter** — Ignore bot messages; require mention.
 3. **Retry wrap** — `async-retry` with 3 attempts, 2s–30s backoff, transient-failure classification in `src/bot/onMessage.js`.
-4. **Build tools** — `src/discord/tools/index.js` binds all 23 action/context tools to the live Discord client.
+4. **Build tools** — `src/discord/tools/index.js` binds all 24 action/context tools to the live Discord client.
 5. **Extract context** — `src/discord/context.js` pulls channel, guild, message, author, and mention data.
 6. **Load persona** — `src/config/systemPrompt.js` reads `AGENTS.md` once from disk and caches it for the process lifetime.
 7. **Fetch recent conversation** — `src/agent/agent.js` reads the last 20 messages from the current channel, reverses them to chronological order, truncates each to 500 characters, and injects a plain-text transcript into the system message.
@@ -109,7 +109,7 @@ This means Nemo reconstructs project understanding by **actively reading Discord
 
 - **Conversational project management** — Talk to Nemo in plain language. It decides what to do, calls the right Discord tools, and reports back.
 - **ReAct agent loop** — Powered by LangChain: the LLM reasons, selects tools, executes them, and synthesizes a response across up to 6 iterations.
-- **23 Discord tools** — Write, read, and audit Discord state from one agent surface:
+- **24 Discord tools** — Write, read, and audit Discord state from one agent surface:
   - **Messaging:** send, edit, delete, pin/unpin messages, post in threads
   - **Threading:** create threads, send thread messages, list active threads, read thread history
   - **Channels:** inspect channels, audit required project channels, create missing project channels
@@ -126,7 +126,7 @@ This means Nemo reconstructs project understanding by **actively reading Discord
 
 ## Tools and Permissions
 
-Nemo's agent has access to 23 Discord tools. Each tool is gated by a permission check before execution.
+Nemo's agent has access to 24 Discord tools. Each tool is gated by a permission check before execution.
 
 ### Action tools
 
@@ -392,7 +392,7 @@ nemo/
 ## Security Notes
 
 - **Never commit your `.env`** — it is in `.gitignore`.
-- DMs are supported for server members only. Nemo uses a lightweight last-seen-server memory to guess the project context, but if that context is missing it will ask for clarification instead of guessing.
+- DMs are supported for server members only. Nemo uses a lightweight last-seen-server memory to guess the project context. In DMs, users can also switch context naturally using phrases like `switch to Project X`, `use server X`, or `project: X`.
 - Tool execution is permission-gated at the Discord role level — the bot can only do what your server allows.
 - Keep your `DISCORD_TOKEN` and `OPENAI_API_KEY` private. Rotate them if exposed.
 
@@ -400,7 +400,7 @@ nemo/
 
 ## Troubleshooting
 
-- **Nemo doesn't reply in DMs** — Make sure the DM sender is a member of at least one server with Nemo, and that they have mentioned Nemo there at least once so a last-seen server is cached.
+- **DM replies for server members** — DMs are supported for members of at least one server with Nemo. If a last-seen server is cached, Nemo responds; otherwise it asks for clarification or a server name.
 - **Permission errors** — The bot needs `Read Message History` for milestone/thread tools and `Manage Channels` for `create_project_channels`.
 - **Missing `.env` values** — Startup validation will fail loudly if required variables are absent. Check your `.env` and restart.
 - **LLM errors** — Check `OPENAI_BASE_URL`, `OPENAI_MODEL`, and your API key. Nemo reports tool or LLM call failures as normal replies when possible.
@@ -414,9 +414,8 @@ Nemo supports DMs, but with a narrower contract than server channels.
 
 - **Server membership required** — DMs from non-members are ignored.
 - **Last-seen server heuristic** — Nemo remembers the last server where a user mentioned it, and uses that as the default project context in DMs.
-- **No cached project yet** — If there is no last-seen server for the user, Nemo replies with a short prompt asking them to mention Nemo in the relevant server first.
+- **Natural-language switching** — In a DM, users can switch project context with phrases like `switch to Project X`, `use server X`, or `project: X`. Responses are only made when the switch is unambiguous.
 - **Guild-specific tools still need a server** — Some actions, like milestone reads or project-channel setup, remain tied to a specific guild. In ambiguous cases, Nemo will ask which project before acting.
-- **Switching servers** — The only current way to switch DM project context is to mention Nemo in another server. There is no in-DM command to list or rebind projects yet.
 
 ---
 
@@ -452,7 +451,7 @@ Nemo is actively evolving. Planned capabilities:
 - [ ] Integration with external trackers (Jira, GitHub Issues, Linear)
 - [ ] Confirmation guardrails for destructive edits/deletes
 - [ ] Rate/cost controls for high-traffic servers
-- [ ] Explicit DM project binding so users can switch servers without leaving DMs
+- [ ] Explicit DM project binding with slash commands or settings UI
 
 ---
 
