@@ -14,6 +14,8 @@ import {
   getThreadHistory,
   getServerState,
   getChannelInfo,
+  checkProjectChannels,
+  getEvents,
 } from "../discord/tools/index.js";
 
 // ── Mock Discord client with permission bitfield ───────────────────
@@ -212,3 +214,18 @@ test("get_channel_info schema rejects empty channelId", () => {
 });
 
 console.log("✅ All context-tool schema tests passed!");
+
+// ── check_project_channels ──────────────────────────────
+test("check_project_channels schema requires guildId", () => {
+  const tool = checkProjectChannels({ client: mockContextClient() });
+  const r = tool.schema.safeParse({});
+  assert.ok(!r.success);
+});
+
+// ── get_events ──────────────────────────────────────────
+test("get_events schema requires guildId", () => {
+  const tool = getEvents({ client: mockContextClient() });
+  const r = tool.schema.safeParse({});
+  assert.ok(!r.success);
+});
+

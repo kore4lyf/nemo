@@ -1,6 +1,7 @@
 import { messageActions } from "./messages.js";
 import { threadActions } from "./threads.js";
 import { reactionActions } from "./reactions.js";
+import { channelActions } from "./channels.js";
 import { makeTool } from "../shared/factory.js";
 
 // All action definitions, in declaration order. Order is preserved
@@ -10,6 +11,7 @@ export const allActionDefinitions = [
   ...messageActions,
   ...threadActions,
   ...reactionActions,
+  ...channelActions,
 ];
 
 // Bound action tools for a live client. The agent imports actionTools().

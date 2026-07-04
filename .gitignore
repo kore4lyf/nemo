@@ -8,8 +8,8 @@ TASK.md
 REVIEW.md
 TEST.md
 
-# Agent channel config
-AGENT-CHANNEL.md
--e 
+# Agent channel specs (per-task briefs for developers)
+AGENT-CHANNEL*.md
+
 # Rules file
 RULES.md

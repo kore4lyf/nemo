@@ -21,10 +21,14 @@ export const TOOLS = {
   GET_RECENT_MESSAGES: "get_recent_messages",
   GET_MESSAGE: "get_message",
   GET_ACTIVE_THREADS: "get_active_threads",
-  // alias kept for back-compat with readers/tests
   LIST_THREADS: "list_threads",
   GET_THREAD_HISTORY: "get_thread_history",
   GET_SERVER_STATE: "get_server_state",
+
+  // New task 2 tools
+  CHECK_PROJECT_CHANNELS: "check_project_channels",
+  CREATE_PROJECT_CHANNELS: "create_project_channels",
+  GET_EVENTS: "get_events",
 };
 
 // Permission names (used in permissions.js getRequiredPermission)
@@ -35,6 +39,7 @@ export const PERMS = {
   ADD_REACTIONS: "AddReactions",
   PIN_MESSAGES: "PinMessages",
   MANAGE_MESSAGES: "ManageMessages",
+  MANAGE_CHANNELS: "ManageChannels",
   CREATE_PUBLIC_THREADS: "CreatePublicThreads",
   CREATE_PRIVATE_THREADS: "CreatePrivateThreads",
   READ_MESSAGE_HISTORY: "ReadMessageHistory",
@@ -64,6 +69,18 @@ export const TOOL_PERMISSIONS = {
   [TOOLS.LIST_THREADS]: PERMS.VIEW_CHANNEL,
   [TOOLS.GET_THREAD_HISTORY]: PERMS.READ_MESSAGE_HISTORY,
   [TOOLS.GET_SERVER_STATE]: PERMS.VIEW_CHANNEL,
+
+  // Task 2 tools
+  [TOOLS.CHECK_PROJECT_CHANNELS]: PERMS.VIEW_CHANNEL,
+  [TOOLS.CREATE_PROJECT_CHANNELS]: PERMS.MANAGE_CHANNELS,
+  [TOOLS.GET_EVENTS]: PERMS.VIEW_CHANNEL,
+};
+
+// Required project channels — hardcoded, matched case-insensitively
+export const PROJECT_CHANNELS = {
+  PROJECT: "project",
+  MILESTONES: "milestones",
+  INTRODUCTION: "introduction",
 };
 
 // Default LLM config (used in agent.js and env.js)

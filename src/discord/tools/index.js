@@ -31,11 +31,13 @@ import {
 } from "./action/messages.js";
 import { threadActions } from "./action/threads.js";
 import { reactionActions } from "./action/reactions.js";
+import { channelActions } from "./action/channels.js";
 import { memberContext } from "./context/members.js";
 import { channelContext } from "./context/channels.js";
 import { messageContext } from "./context/messages.js";
 import { threadContext } from "./context/threads.js";
 import { serverContext } from "./context/servers.js";
+import { eventContext } from "./context/events.js";
 import { makeTool as _makeTool } from "./shared/factory.js";
 
 const bindAll = () => {
@@ -44,11 +46,13 @@ const bindAll = () => {
     ...messageActions,
     ...threadActions,
     ...reactionActions,
+    ...channelActions,
     ...memberContext,
     ...channelContext,
     ...messageContext,
     ...threadContext,
     ...serverContext,
+    ...eventContext,
   ]) {
     tools[def.name] = ({ client }) =>
       _makeTool(def)({ client });
@@ -77,3 +81,6 @@ export const getActiveThreads = bound.get_active_threads;
 export const listThreads = bound.list_threads;
 export const getThreadHistory = bound.get_thread_history;
 export const getServerState = bound.get_server_state;
+export const checkProjectChannels = bound.check_project_channels;
+export const createProjectChannels = bound.create_project_channels;
+export const getEvents = bound.get_events;

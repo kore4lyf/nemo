@@ -3,6 +3,7 @@ import { channelContext } from "./channels.js";
 import { messageContext } from "./messages.js";
 import { threadContext } from "./threads.js";
 import { serverContext } from "./servers.js";
+import { eventContext } from "./events.js";
 import { makeTool } from "../shared/factory.js";
 
 export const allContextDefinitions = [
@@ -11,6 +12,7 @@ export const allContextDefinitions = [
   ...messageContext,
   ...threadContext,
   ...serverContext,
+  ...eventContext,
 ];
 
 export function contextTools({ client }) {

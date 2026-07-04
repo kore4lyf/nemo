@@ -1,7 +1,13 @@
 import { z } from "zod";
+import { ChannelType } from "discord.js";
 import { guildIdField, channelIdField } from "../shared/schemas.js";
 import { hasPermission, getRequiredPermission } from "../shared/permissions.js";
 import { ok, fail } from "../shared/response.js";
+import { PROJECT_CHANNELS } from "../../../config/constants.js";
+
+function getRequiredChannelNames() {
+  return Object.values(PROJECT_CHANNELS);
+}
 
 export const channelContext = [
   {
@@ -55,6 +61,47 @@ export const channelContext = [
           memberCount: ch.memberCount ?? null,
           messageCount: ch.messages?.cache?.size ?? null,
         });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  },
+  {
+    name: "check_project_channels",
+    description:
+      "Audit the guild to check which required project channels exist (project, milestones, introduction). Matches case-insensitively.",
+    schema: z.object({ guildId: guildIdField }),
+    async create(client, input) {
+      const perm = getRequiredPermission("check_project_channels");
+      try {
+        const guild = await client.guilds.fetch(input.guildId);
+        const first = [...guild.channels.cache.values()][0];
+        if (first) {
+          const ok2 = await hasPermission({
+            client,
+            channelId: first.id,
+            permissionName: perm,
+          });
+          if (!ok2) return fail(`Missing permission: ${perm}`);
+        }
+
+        const requiredNames = getRequiredChannelNames();
+        const allChannels = [...guild.channels.cache.values()];
+        const existing = [];
+        const missing = [];
+
+        for (const reqName of requiredNames) {
+          const match = allChannels.find(
+            (c) => c.name.toLowerCase() === reqName.toLowerCase()
+          );
+          if (match) {
+            existing.push({ name: reqName, id: match.id });
+          } else {
+            missing.push({ name: reqName });
+          }
+        }
+
+        return ok({ existing, missing });
       } catch (err) {
         return fail(err);
       }
