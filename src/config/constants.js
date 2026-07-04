@@ -88,5 +88,5 @@ export const PROJECT_CHANNELS = {
 // Default LLM config (used in agent.js and env.js)
 export const LLM_DEFAULTS = {
   BASE_URL: "https://api.aimlapi.com/v1",
-  MODEL: "alibaba/qwen3-vl-flash",
+  MODEL: "x-ai/grok-4-1-fast-reasoning",
 };
