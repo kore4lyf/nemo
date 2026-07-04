@@ -359,6 +359,35 @@ test("error reply: should not expose stack traces", () => {
 // CATEGORY 6: DM Routing and Last-Seen Guild Behavior
 // ══════════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════
+// DM helpers (mirrored from src/bot/onMessage.js)
+// ══════════════════════════════════════════════════════════════════
+
+const ALLOWED_SWITCH_PREFIXES = /switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=]/i;
+
+function looksLikeSwitchRequest(text) {
+  return ALLOWED_SWITCH_PREFIXES.test(text || "");
+}
+
+function extractSwitchTarget(text) {
+  const match = text.match(/(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*["']?([^"'\n]+?)["']?\s*$/i);
+  return match?.[1]?.trim();
+}
+
+function resolveDMGuild(client, author, query) {
+  const normalized = query.toLowerCase();
+  const matches = [];
+  for (const guild of client.guilds.cache.values()) {
+    if (!guild.members.cache.has(author.id)) continue;
+    const name = (guild.name || "").toLowerCase();
+    if (!name) continue;
+    if (name === normalized || name.includes(normalized)) {
+      matches.push(guild);
+    }
+  }
+  return matches;
+}
+
 const lastDMGuild = new Map();
 
 function makeCache(values) {
@@ -374,7 +403,7 @@ function simulateOnMessage(message) {
   const isDM = !message.guild;
   if (!isDM && !message.mentions.has(message.client.user)) return "ignore";
 
-  const { client, author } = message;
+  const { client, author, content = "" } = message;
   if (isDM) {
     const isServerMember = client.guilds.cache.some((guild) =>
       guild.members.cache.has(author.id)
@@ -382,7 +411,32 @@ function simulateOnMessage(message) {
     if (!isServerMember) return "ignore-non-member";
 
     const cachedGuildId = lastDMGuild.get(author.id);
-    if (!cachedGuildId) return "dm-needs-project";
+    const requestedSwitch = looksLikeSwitchRequest(content)
+      ? extractSwitchTarget(content)
+      : null;
+
+    if (!cachedGuildId && requestedSwitch) {
+      const matches = resolveDMGuild(client, author, requestedSwitch);
+      if (matches.length === 1) {
+        lastDMGuild.set(author.id, matches[0].id);
+        return "dm-switched";
+      } else if (matches.length > 1) {
+        return "dm-switch-ambiguous";
+      }
+      return "dm-switch-unknown";
+    }
+
+    if (cachedGuildId && requestedSwitch) {
+      const matches = resolveDMGuild(client, author, requestedSwitch);
+      if (matches.length === 1) {
+        lastDMGuild.set(author.id, matches[0].id);
+        return "dm-switched";
+      }
+      if (matches.length === 0) return "dm-switch-unknown";
+      return "dm-switch-ambiguous";
+    }
+
+    if (!cachedGuildId && !requestedSwitch) return "dm-needs-project";
     return "dm-ok";
   }
 
@@ -496,6 +550,167 @@ test("guild message: should update last seen guild for DM context", () => {
 
   const result = simulateOnMessage(message);
   assert.strictEqual(result, "guild-ok");
+  assert.strictEqual(lastDMGuild.get("u-1"), "g-1");
+});
+
+// ══════════════════════════════════════════════════════════════════
+// CATEGORY 6C: Natural-Language DM Switching
+// ══════════════════════════════════════════════════════════════════
+
+test("DM switch request: detected without cached guild binds project", () => {
+  lastDMGuild.delete("u-1");
+
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    content: "switch to Project X",
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                id: "g-1",
+                name: "Project X",
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const before = lastDMGuild.get("u-1");
+  const result = simulateOnMessage(message);
+  const after = lastDMGuild.get("u-1");
+
+  assert.strictEqual(before, undefined);
+  assert.strictEqual(result, "dm-switched");
+  assert.strictEqual(after, "g-1");
+});
+
+test("DM switch request: ambiguous target does not guess", () => {
+  lastDMGuild.set("u-1", undefined);
+
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    content: "switch to Project",
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                id: "g-1",
+                name: "Project A",
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ],
+            [
+              "g-2",
+              {
+                id: "g-2",
+                name: "Project B",
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "dm-switch-ambiguous");
+  assert.strictEqual(lastDMGuild.get("u-1"), undefined);
+});
+
+test("DM switch request: unknown target returns unknown", () => {
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    content: "switch to Unknown Project",
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                id: "g-1",
+                name: "Project X",
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "dm-switch-unknown");
+});
+
+test("DM cached guild: explicit switch rebinds exact match", () => {
+  lastDMGuild.set("u-1", "g-1");
+
+  const message = {
+    author: { bot: false, id: "u-1" },
+    guild: null,
+    content: "switch to Project X",
+    mentions: { has: () => false },
+    client: {
+      user: { id: "bot-1" },
+      guilds: {
+        cache: makeCache(
+          new Map([
+            [
+              "g-1",
+              {
+                id: "g-1",
+                name: "Project X",
+                members: {
+                  cache: new Map([
+                    ["u-1", { id: "u-1" }]
+                  ])
+                }
+              }
+            ]
+          ])
+        )
+      }
+    }
+  };
+
+  const result = simulateOnMessage(message);
+  assert.strictEqual(result, "dm-switched");
   assert.strictEqual(lastDMGuild.get("u-1"), "g-1");
 });
 
