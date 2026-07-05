@@ -13,3 +13,8 @@ AGENT-CHANNEL*.md
 
 # Rules file
 RULES.md
+
+# Planning files (session-specific, not for repo)
+task_plan.md
+findings.md
+progress.md
