@@ -154,17 +154,22 @@ function mockSweepClient({ channels, channelMessages } = {}) {
       content,
       createdTimestamp: 1700000000000 + idx,
     }));
-    let exhausted = false;
+    // Track position for proper pagination
+    let nextIdx = 0;
     return {
       ...c,
       messages: {
-        fetch: async () => {
-          if (exhausted) {
-            exhausted = false;
-            return createSweepMessages([]);
+        fetch: async (opts) => {
+          const before = opts?.before;
+          if (before) {
+            // Find position after the 'before' message
+            const pos = items.findIndex((m) => m.id === before);
+            nextIdx = pos >= 0 ? pos + 1 : items.length;
+          } else {
+            nextIdx = 0;
           }
-          exhausted = true;
-          return createSweepMessages(items);
+          const page = items.slice(nextIdx, nextIdx + 100);
+          return createSweepMessages(page);
         },
       },
     };
@@ -302,10 +307,15 @@ test('get_milestones: author filters by user id', async () => {
         channels: {
           cache: {
             values: () => [
-              { id: 'ch-milestones', name: 'milestones', type: 0, messages: { fetch: async () => ({ size: 2, values: () => [
-                { id: 'm-0', author: { username: 'user-0', id: '100000000000000000' }, content: 'from user-0', createdTimestamp: 1700000000000 },
-                { id: 'm-1', author: { username: 'user-1', id: '100000000000000001' }, content: 'from user-1', createdTimestamp: 1700000001000 },
-              ], last: () => ({ id: 'm-1' }) }) } },
+              { id: 'ch-milestones', name: 'milestones', type: 0, messages: { fetch: async (opts) => {
+                if (opts && opts.before) {
+                  return { size: 0, values: () => [], last: () => null };
+                }
+                return { size: 2, values: () => [
+                  { id: 'm-0', author: { username: 'user-0', id: '100000000000000000' }, content: 'from user-0', createdTimestamp: 1700000000000 },
+                  { id: 'm-1', author: { username: 'user-1', id: '100000000000000001' }, content: 'from user-1', createdTimestamp: 1700000001000 },
+                ], last: () => ({ id: 'm-1' }) };
+              } } },
             ],
             first: () => ({ id: 'ch-milestones' }),
           },

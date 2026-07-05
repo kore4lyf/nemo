@@ -42,8 +42,9 @@ export async function sweepChannelByName({ client, channelName, guildId }) {
 
     const collected = [];
     let before = null;
+    const MAX_PAGES = 100; // safety limit: 100 pages × 100 msgs = 10,000 messages max
 
-    while (true) {
+    for (let page_num = 0; page_num < MAX_PAGES; page_num++) {
       let page;
       try {
         page = await channel.messages.fetch({

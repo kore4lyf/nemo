@@ -1,5 +1,5 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
+import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { extractContext } from "../discord/context.js";
 import { LLM_DEFAULTS } from "../config/constants.js";
 import { getSystemPrompt } from "../config/systemPrompt.js";
@@ -46,8 +46,11 @@ export async function processWithAgent({ client, message, requestId }) {
     ].join("\n"),
   });
 
+  // Fetch recent conversation context (last 10 non-bot messages)
+  const contextMessages = await fetchRecentContext(message);
+
   // ReAct loop: LLM decides tool calls → execute → feed results back
-  const messages = [systemMessage, new HumanMessage(message.content)];
+  const messages = [systemMessage, ...contextMessages, new HumanMessage(message.content)];
   const MAX_ITERATIONS = 6;
 
   try {
@@ -98,5 +101,43 @@ export async function processWithAgent({ client, message, requestId }) {
     // moderation) will be caught by the outer catch in onMessage and
     // returned to the user as a failure message.
     throw error;
+  }
+}
+
+// ── Conversation context ─────────────────────────────────────────────
+// Fetches the last N messages from the channel to give Nemo short-term
+// memory. Filters out bot messages and the triggering message itself.
+const CONTEXT_MESSAGE_COUNT = 10;
+
+async function fetchRecentContext(message) {
+  try {
+    if (!message.channel?.messages) return [];
+
+    const fetched = await message.channel.messages.fetch({
+      limit: CONTEXT_MESSAGE_COUNT + 5, // fetch extra to account for filtering
+      before: message.id,
+    });
+
+    if (!fetched || fetched.size === 0) return [];
+
+    // Filter: no bot messages, no empty content, newest first → reverse for chronological
+    const recent = []
+      .filter((msg) => !msg.author?.bot && msg.content?.trim())
+      .slice(0, CONTEXT_MESSAGE_COUNT)
+      .reverse(); // oldest first for LLM context
+
+    return recent.map((msg) => {
+      const author = msg.author?.username || "unknown";
+      const isNemo = msg.author?.id === message.client?.user?.id;
+      // Use AIMessage for Nemo's own messages, HumanMessage for others
+      if (isNemo) {
+        return new AIMessage(`[Nemo, earlier] ${msg.content}`);
+      }
+      return new HumanMessage(`[${author}] ${msg.content}`);
+    });
+  } catch (err) {
+    // Non-fatal: context is nice-to-have, not required
+    logger.debug(`Could not fetch conversation context: ${err.message}`);
+    return [];
   }
 }
