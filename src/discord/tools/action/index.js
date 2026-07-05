@@ -15,6 +15,6 @@ export const allActionDefinitions = [
 ];
 
 // Bound action tools for a live client. The agent imports actionTools().
-export function actionTools({ client }) {
-  return allActionDefinitions.map((def) => makeTool(def)({ client }));
+export function actionTools({ client, message }) {
+  return allActionDefinitions.map((def) => makeTool(def)({ client, message }));
 }

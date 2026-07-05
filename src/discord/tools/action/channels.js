@@ -20,10 +20,7 @@ export const channelActions = [
       const perm = getRequiredPermission("create_project_channels");
       try {
         const guild = await client.guilds.fetch(input.guildId);
-        const probeChannels = [...guild.channels.cache.values()]
-          .filter((c) => c.isTextBased?.())
-          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-        const first = probeChannels[0];
+        const first = [...guild.channels.cache.values()][0];
 
         // Check ViewChannel first (always needed), then ManageChannels
         const viewPerm = "ViewChannel";

@@ -23,14 +23,16 @@ export const serverContext = [
           if (!ok2) return fail(`Missing permission: ${perm}`);
         }
 
-        const textChannels = [...guild.channels.cache.values()]
-          .filter((ch) => ch.isTextBased?.() && ch.messages?.fetchPins);
-        const pinResults = await Promise.all(
-          textChannels.map((ch) => ch.messages.fetchPins().catch(() => null))
-        );
         let pinned = 0;
-        for (const result of pinResults) {
-          if (result) pinned += result.size;
+        for (const ch of guild.channels.cache.values()) {
+          if (ch.isTextBased?.() && ch.messages?.fetchPins) {
+            try {
+              const pins = await ch.messages.fetchPins();
+              pinned += pins.size;
+            } catch {
+              // swallow per-channel; aggregate may still be useful
+            }
+          }
         }
 
         const activeThreads = await guild.channels.fetchActiveThreads().catch(() => null);

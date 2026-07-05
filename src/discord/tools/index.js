@@ -8,8 +8,8 @@ import { contextTools, allContextDefinitions } from "./context/index.js";
  * Build all tools bound to a live Discord client.
  * Returns the array LangChain expects for llm.bindTools().
  */
-export function buildAllTools({ client }) {
-  return [...actionTools({ client }), ...contextTools({ client })];
+export function buildAllTools({ client, message }) {
+  return [...actionTools({ client, message }), ...contextTools({ client, message })];
 }
 
 // Convenience: list of definition objects (used by tests that walk the tree).

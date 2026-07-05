@@ -23,22 +23,17 @@ export const threadContext = [
       guildId: guildIdField.optional(),
     }),
     async create(client, input) {
-      const perm = getRequiredPermission("list_threads");
-
-      // Always check permission — probe any cached channel if only guildId is given
-      const probeTarget = input.channelId
-        ? input.channelId
-        : (await client.guilds.fetch(input.guildId).catch(() => null))?.channels?.cache?.first()?.id;
-
-      if (probeTarget) {
-        const ok2 = await hasPermission({
-          client,
-          channelId: probeTarget,
-          permissionName: perm,
-        });
-        if (!ok2) return fail(`Missing permission: ${perm}`);
+      if (input.channelId) {
+        const perm = getRequiredPermission("list_threads");
+        if (
+          !(await hasPermission({
+            client,
+            channelId: input.channelId,
+            permissionName: perm,
+          }))
+        )
+          return fail(`Missing permission: ${perm}`);
       }
-
       try {
         const target = input.channelId
           ? await client.channels.fetch(input.channelId)
@@ -50,20 +45,42 @@ export const threadContext = [
       }
     },
   },
-  // Back-compat alias: list_threads → get_active_threads
+  // Back-compat alias so older callers/tests using list_threads still import correctly.
   {
     name: "list_threads",
-    description: "Alias for get_active_threads (deprecated, use get_active_threads).",
+    description: "Alias for get_active_threads (back-compat).",
     schema: z.object({
       channelId: channelIdField.optional(),
       guildId: guildIdField.optional(),
     }),
     async create(client, input) {
-      if (!input.channelId && !input.guildId)
+      const sorted = {
+        channelId: input.channelId,
+        guildId: input.guildId,
+      };
+      if (!sorted.channelId && !sorted.guildId)
         return fail("channelId or guildId is required.");
-      // Forward to canonical implementation
-      const canonical = threadContext.find((t) => t.name === "get_active_threads");
-      return canonical.create(client, input);
+
+      if (sorted.channelId) {
+        const perm = getRequiredPermission("list_threads");
+        if (
+          !(await hasPermission({
+            client,
+            channelId: sorted.channelId,
+            permissionName: perm,
+          }))
+        )
+          return fail(`Missing permission: ${perm}`);
+      }
+      try {
+        const target = sorted.channelId
+          ? await client.channels.fetch(sorted.channelId)
+          : await client.guilds.fetch(sorted.guildId);
+        const threads = await fetchThreadMeta(target);
+        return ok({ threads });
+      } catch (err) {
+        return fail(err);
+      }
     },
   },
   {

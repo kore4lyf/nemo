@@ -19,6 +19,6 @@ export const allContextDefinitions = [
   ...eventContext,
 ];
 
-export function contextTools({ client }) {
-  return allContextDefinitions.map((def) => makeTool(def)({ client }));
+export function contextTools({ client, message }) {
+  return allContextDefinitions.map((def) => makeTool(def)({ client, message }));
 }

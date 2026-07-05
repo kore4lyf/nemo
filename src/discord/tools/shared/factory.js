@@ -8,8 +8,8 @@ import { tool } from "@langchain/core/tools";
  * across action + context layers.
  */
 export function makeTool(def) {
-  return ({ client }) =>
-    tool((input) => def.create(client, input), {
+  return ({ client, message }) =>
+    tool((input) => def.create(client, input, { message }), {
       name: def.name,
       description: def.description,
       schema: def.schema,

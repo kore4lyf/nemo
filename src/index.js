@@ -1,51 +1,27 @@
 import "dotenv/config";
 import "./config/env.js";
-import { Client, GatewayIntentBits, Events, REST, Routes } from "discord.js";
+import { Client, GatewayIntentBits, Events } from "discord.js";
 import { logger } from "./config/logger.js";
 import { onMessage } from "./bot/onMessage.js";
-import { handleInteraction } from "./bot/interactions.js";
-import { commands } from "./discord/commands/index.js";
+import { agentQueue } from "./bot/queue.js";
 
-async function registerCommands(client) {
-  try {
-    const applicationId = client.user?.id;
-    if (!applicationId) {
-      logger.warn("Skipping slash command registration; no application id yet.");
-      return;
-    }
-
-    const body = commands.map((command) => command.toJSON());
-
-    const rest = new REST().setToken(process.env.DISCORD_TOKEN);
-
-    logger.info(`Registering ${body.length} slash commands...`);
-    await rest.put(Routes.applicationCommands(applicationId), {
-      body,
-    });
-    logger.info("Slash commands registered.");
-  } catch (err) {
-    logger.error("Slash command registration failed:", err.message || err);
-  }
-}
+let client;
 
 async function main() {
   logger.info("Nemo starting...");
 
-  const client = new Client({
+  client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers,  // required for member tools + DM routing
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.DirectMessages,
-      GatewayIntentBits.GuildPresences, // enables presence.status in get_members
     ],
     rest: { timeout: 30_000 },
   });
 
-  client.once(Events.ClientReady, async (readyClient) => {
+  client.once(Events.ClientReady, (readyClient) => {
     logger.info(`Logged in as ${readyClient.user.tag}`);
-    await registerCommands(readyClient);
   });
 
   client.on(Events.ShardDisconnect, (event, shardId) => {
@@ -65,7 +41,6 @@ async function main() {
   });
 
   client.on(Events.MessageCreate, onMessage);
-  client.on(Events.InteractionCreate, handleInteraction);
 
   const token = process.env.DISCORD_TOKEN;
   if (!token) {
@@ -88,3 +63,24 @@ process.on("unhandledRejection", (err) => {
 process.on("uncaughtException", (err) => {
   logger.error("Uncaught exception (non-fatal):", err.message);
 });
+
+// ── Graceful shutdown ────────────────────────────────────────────────
+function shutdown(signal) {
+  logger.info(`${signal} received — shutting down gracefully...`);
+
+  agentQueue.pause();
+  const drainTimeout = setTimeout(() => {
+    logger.warn("Queue drain timed out — forcing exit.");
+    process.exit(1);
+  }, 30_000);
+
+  agentQueue.onIdle().then(() => {
+    clearTimeout(drainTimeout);
+    logger.info("Queue drained. Disconnecting...");
+    client?.destroy();
+    process.exit(0);
+  });
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

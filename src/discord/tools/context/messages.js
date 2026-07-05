@@ -8,10 +8,7 @@ const normalizeMessage = (msg) => ({
   author: msg.author?.username ?? msg.author?.id ?? null,
   content: msg.content ?? "",
   // JavaScript timestamps are ms; Discord gives seconds sometimes — accept both.
-  createdAt: (() => {
-    const ts = msg.createdTimestamp ?? Date.parse(msg.createdAt);
-    return Number.isFinite(ts) ? ts : null;
-  })(),
+  createdAt: msg.createdTimestamp ?? Date.parse(msg.createdAt) ?? null,
   pinnedAt: msg.pinnedTimestamp
     ? msg.pinnedTimestamp
     : msg.pinnedAt
@@ -76,7 +73,7 @@ export const messageContext = [
       messageId: messageIdField,
     }),
     async create(client, input) {
-      const perm = getRequiredPermission("get_message");
+      const perm = getRequiredPermission("get_recent_messages");
       if (
         !(await hasPermission({ client, channelId: input.channelId, permissionName: perm }))
       )

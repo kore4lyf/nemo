@@ -138,44 +138,6 @@ function createSweepMessages(items) {
   };
 }
 
-/*
- * Build a Discord-like paginator over a fixed list of messages.
- *
- * Models the contract `sweepChannelByName` relies on:
- *   - fetch({ limit, before: null }) → the oldest batch (Discord orders newest-first;
- *     we return items in declaration order).
- *   - fetch({ limit, before: <id> })   → the batch older than <id>.
- *   - fetch on an exhausted channel    → size:0 (the sweep loop's exit condition).
- *
- * Pure function of `opts.before` — NO toggled boolean, NO shared mutable
- * state across calls or tests. This is the fix for the heap-blowup that
- * happened when the previous mock returned the same page on every call and
- * never produced size:0, sending sweepChannelByName into an infinite loop.
- *
- * Items can carry any string id the test wants; pagination walks the array
- * by index (the position is the cursor), so ids don't have to be sortable
- * snowflakes. The exposed item.id is whatever the test set.
- */
-function createMessagePaginator(items) {
-  // Cursor state: the index of the next-oldest message to return.
-  // Start at 0 (oldest-first). 'before' is an item id; we map it back to a
-  // position by looking it up in the items array.
-  const idToIndex = new Map(items.map((m, i) => [m.id, i]));
-  let nextPos = 0;
-
-  return async function fetch(opts = {}) {
-    const { before } = opts;
-    if (before != null) {
-      const idx = idToIndex.get(before);
-      // If before points at the oldest item, idx === 0 and there's nothing older.
-      // If unknown id, treat as exhausted too (real Discord returns empty).
-      nextPos = idx === undefined ? items.length : idx + 1;
-    }
-    const slice = items.slice(nextPos, nextPos + 100);
-    return createSweepMessages(slice);
-  };
-}
-
 function mockSweepClient({ channels, channelMessages } = {}) {
   const ALL_PERMS = 0x1FFFFFFFFFFFFFn;
   const defaultChannels = [
@@ -192,11 +154,18 @@ function mockSweepClient({ channels, channelMessages } = {}) {
       content,
       createdTimestamp: 1700000000000 + idx,
     }));
-    const fetch = createMessagePaginator(items);
+    let exhausted = false;
     return {
       ...c,
       messages: {
-        fetch: async (opts) => fetch(opts),
+        fetch: async () => {
+          if (exhausted) {
+            exhausted = false;
+            return createSweepMessages([]);
+          }
+          exhausted = true;
+          return createSweepMessages(items);
+        },
       },
     };
   });
@@ -325,22 +294,6 @@ test("get_milestones: author filters by username", async () => {
 });
 
 test('get_milestones: author filters by user id', async () => {
-  const TWO_ITEMS = [
-    { id: 'm-0', author: { username: 'user-0', id: '100000000000000000' }, content: 'from user-0', createdTimestamp: 1700000000000 },
-    { id: 'm-1', author: { username: 'user-1', id: '100000000000000001' }, content: 'from user-1', createdTimestamp: 1700000001000 },
-  ];
-  const paginateMessages = {
-    fetch: async (opts) => {
-      if (opts && opts.before) {
-        return { size: 0, values: () => [], last: () => null };
-      }
-      return {
-        size: 2,
-        values: () => TWO_ITEMS,
-        last: () => TWO_ITEMS[TWO_ITEMS.length - 1],
-      };
-    },
-  };
   const client = {
     user: { id: 'bot-123' },
     guilds: {
@@ -349,7 +302,10 @@ test('get_milestones: author filters by user id', async () => {
         channels: {
           cache: {
             values: () => [
-              { id: 'ch-milestones', name: 'milestones', type: 0, messages: paginateMessages },
+              { id: 'ch-milestones', name: 'milestones', type: 0, messages: { fetch: async () => ({ size: 2, values: () => [
+                { id: 'm-0', author: { username: 'user-0', id: '100000000000000000' }, content: 'from user-0', createdTimestamp: 1700000000000 },
+                { id: 'm-1', author: { username: 'user-1', id: '100000000000000001' }, content: 'from user-1', createdTimestamp: 1700000001000 },
+              ], last: () => ({ id: 'm-1' }) }) } },
             ],
             first: () => ({ id: 'ch-milestones' }),
           },
@@ -368,7 +324,21 @@ test('get_milestones: author filters by user id', async () => {
             }),
           },
         },
-        messages: paginateMessages,
+        messages: {
+          fetch: async (opts) => {
+            if (opts && opts.before) {
+              return { size: 0, values: () => [], last: () => null };
+            }
+            return {
+              size: 2,
+              values: () => [
+                { id: 'm-0', author: { username: 'user-0', id: '100000000000000000' }, content: 'from user-0', createdTimestamp: 1700000000000 },
+                { id: 'm-1', author: { username: 'user-1', id: '100000000000000001' }, content: 'from user-1', createdTimestamp: 1700000001000 },
+              ],
+              last: () => ({ id: 'm-1' }),
+            };
+          },
+        },
       }),
     },
   };
@@ -376,6 +346,7 @@ test('get_milestones: author filters by user id', async () => {
     guildId: 'g-1',
     author: '100000000000000001',
   });
+  console.log('DEBUG byId', JSON.stringify(byId));
   assert.strictEqual(byId.success, true);
   assert.strictEqual(byId.milestones.length, 1);
   assert.ok(byId.milestones[0].content.includes('user-1'));

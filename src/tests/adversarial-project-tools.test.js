@@ -29,15 +29,15 @@ function makeGuild(overrides = {}) {
       cache: {
         first: () => ({ id: "ch-1" }),
         values: () => overrides.channels ?? [
-          { id: "ch-1", name: "general", type: 0, parentId: null, isTextBased: () => true },
-          { id: "ch-2", name: "project", type: 0, parentId: null, isTextBased: () => true },
-          { id: "ch-3", name: "introduction", type: 0, parentId: null, isTextBased: () => true },
+          { id: "ch-1", name: "general", type: 0, parentId: null },
+          { id: "ch-2", name: "project", type: 0, parentId: null },
+          { id: "ch-3", name: "introduction", type: 0, parentId: null },
         ],
         [Symbol.iterator]() {
           return (overrides.channels ?? [
-            { id: "ch-1", name: "general", type: 0, parentId: null, isTextBased: () => true },
-            { id: "ch-2", name: "project", type: 0, parentId: null, isTextBased: () => true },
-            { id: "ch-3", name: "introduction", type: 0, parentId: null, isTextBased: () => true },
+            { id: "ch-1", name: "general", type: 0, parentId: null },
+            { id: "ch-2", name: "project", type: 0, parentId: null },
+            { id: "ch-3", name: "introduction", type: 0, parentId: null },
           ]).values();
         },
       },
@@ -50,9 +50,9 @@ function makeGuild(overrides = {}) {
       fetch: async (id) => {
         if (typeof id === "string" && id !== "g-1") {
           const found = (overrides.members ?? [
-            { user: { id: "u-1", username: "alice", bot: false }, nickname: "Ali", roles: { cache: { keys: () => ["r-1"], map: (fn) => [fn({ name: "@developer" })] } }, presence: { status: "online" } },
-            { user: { id: "u-2", username: "bob", bot: false }, nickname: null, roles: { cache: { keys: () => [], map: () => [] } }, presence: { status: "idle" } },
-            { user: { id: "u-bot", username: "Nemo", bot: true }, nickname: null, roles: { cache: { keys: () => [], map: () => [] } } },
+            { user: { id: "u-1", username: "alice", bot: false }, nickname: "Ali", roles: { cache: { keys: () => ["r-1"] } }, presence: { status: "online" } },
+            { user: { id: "u-2", username: "bob", bot: false }, nickname: null, roles: { cache: { keys: () => [] } }, presence: { status: "idle" } },
+            { user: { id: "u-bot", username: "Nemo", bot: true }, nickname: null, roles: { cache: { keys: () => [] } } },
           ]).find((m) => m.user.id === id);
           if (!found) throw new Error("Unknown member");
           return found;
@@ -60,9 +60,9 @@ function makeGuild(overrides = {}) {
         return {
           size: 3,
           values: () => overrides.members ?? [
-            { user: { id: "u-1", username: "alice", bot: false }, nickname: "Ali", roles: { cache: { keys: () => ["r-1"], map: (fn) => [fn({ name: "@developer" })] } }, presence: { status: "online" } },
-            { user: { id: "u-2", username: "bob", bot: false }, nickname: null, roles: { cache: { keys: () => [], map: () => [] } }, presence: { status: "idle" } },
-            { user: { id: "u-bot", username: "Nemo", bot: true }, nickname: null, roles: { cache: { keys: () => [], map: () => [] } } },
+            { user: { id: "u-1", username: "alice", bot: false }, nickname: "Ali", roles: { cache: { keys: () => ["r-1"] } }, presence: { status: "online" } },
+            { user: { id: "u-2", username: "bob", bot: false }, nickname: null, roles: { cache: { keys: () => [] } }, presence: { status: "idle" } },
+            { user: { id: "u-bot", username: "Nemo", bot: true }, nickname: null, roles: { cache: { keys: () => [] } } },
           ],
         };
       },
@@ -313,8 +313,8 @@ test("get_members: excludes bots", async () => {
 test("get_members: all bots → empty array", async () => {
   const client = makeClient(V, {
     members: [
-      { user: { id: "u-bot1", username: "Bot1", bot: true }, nickname: null, roles: { cache: { keys: () => [], map: () => [] } } },
-      { user: { id: "u-bot2", username: "Bot2", bot: true }, nickname: null, roles: { cache: { keys: () => [], map: () => [] } } },
+      { user: { id: "u-bot1", username: "Bot1", bot: true }, nickname: null, roles: { cache: { keys: () => [] } } },
+      { user: { id: "u-bot2", username: "Bot2", bot: true }, nickname: null, roles: { cache: { keys: () => [] } } },
     ],
   });
   const result = await getMembersDef.create(client, { guildId: "g-1" });
@@ -329,14 +329,14 @@ test("get_members: no members → empty array", async () => {
   assert.strictEqual(result.members.length, 0);
 });
 
-test("get_members: returns roles as array of names", async () => {
+test("get_members: returns roles as array of IDs", async () => {
   const client = makeClient(V);
   const result = await getMembersDef.create(client, { guildId: "g-1" });
   assert.strictEqual(result.success, true);
   const alice = result.members.find((m) => m.username === "alice");
   assert.ok(alice);
   assert.ok(Array.isArray(alice.roles));
-  assert.ok(alice.roles.includes("@developer"));
+  assert.ok(alice.roles.includes("r-1"));
 });
 
 test("get_members: memberId returns single-member array with status", async () => {

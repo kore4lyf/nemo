@@ -2,10 +2,26 @@ import { z } from "zod";
 import { guildIdField } from "../shared/schemas.js";
 import { ok, fail } from "../shared/response.js";
 import { sweepChannelByName } from "../shared/sweep.js";
-import { matchesAuthor, matchesQuery } from "../shared/filters.js";
 
 const queryField = z.string().min(1);
 const authorField = z.string().min(1);
+
+function matchesAuthor(message, author) {
+  if (!author) return true;
+  const snowflake = /^\d{17,20}$/.test(author);
+  if (snowflake) {
+    return message.authorId === author;
+  }
+  return typeof message.author === "string"
+    ? message.author.toLowerCase() === author.toLowerCase()
+    : false;
+}
+
+function matchesQuery(message, query) {
+  if (!query) return true;
+  const content = (message.content || "").toLowerCase();
+  return content.includes(query.toLowerCase());
+}
 
 export const introductionContext = [
   {
@@ -36,7 +52,7 @@ export const introductionContext = [
         filtered = filtered.filter((m) => matchesQuery(m, input.query));
       }
 
-      return ok({ introductions: filtered, scanned: filtered.length });
+      return ok({ introductions: filtered, scanned: sweep.messages.length });
     },
   },
 ];

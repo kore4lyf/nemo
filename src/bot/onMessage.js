@@ -1,6 +1,32 @@
 import retry from "async-retry";
+import { randomUUID } from "node:crypto";
 import { processWithAgent } from "../agent/agent.js";
-import { logger } from "../config/logger.js";
+import { logger, scopedLogger } from "../config/logger.js";
+import { agentQueue, isOnCooldown, recordInvocation, CooldownError } from "./queue.js";
+
+// ── Message dedup ──────────────────────────────────────────────────────
+// Prevents double-processing when Discord replays events after shard resume.
+const PROCESSED_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const processedMessages = new Map(); // messageId → timestamp
+
+function isDuplicate(messageId) {
+  const ts = processedMessages.get(messageId);
+  if (!ts) return false;
+  if (Date.now() - ts < PROCESSED_TTL_MS) return true;
+  processedMessages.delete(messageId);
+  return false;
+}
+
+function markProcessed(messageId) {
+  processedMessages.set(messageId, Date.now());
+  // Periodic cleanup
+  if (processedMessages.size > 500) {
+    const cutoff = Date.now() - PROCESSED_TTL_MS;
+    for (const [id, ts] of processedMessages) {
+      if (ts < cutoff) processedMessages.delete(id);
+    }
+  }
+}
 
 // Error classification — only retry transient failures
 function isRetryable(err) {
@@ -28,71 +54,12 @@ function isRetryable(err) {
   return false;
 }
 
-const ALLOWED_SWITCH_PREFIXES =
-  /switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)\b(?!\s+(?:channel|thread|threads|plan|board|category|messages|pins?|project))/i;
-
-function looksLikeSwitchRequest(text) {
-  return ALLOWED_SWITCH_PREFIXES.test(text || "");
-}
-
-function extractSwitchTarget(text) {
-  const match = text.match(
-    /(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*(.+)/i
-  );
-  const raw = match?.[1]?.trim() || "";
-  // Bug 3 fix: only split on trailing conjunctions/fillers, not on punctuation
-  // that can legitimately appear in server names (commas, dots, em-dashes).
-  const target = raw.split(/\s+(?:and\b|then\b|what'?s\b|is\b|are\b|do\b|does\b|tell\b)/)[0].trim();
-  return target.replace(/^(?:the|my|a|an)\s+/i, "").trim() || null;
-}
-
-function resolveDMGuild(client, author, query) {
-  const normalized = query.toLowerCase();
-  const matches = [];
-  for (const guild of client.guilds.cache.values()) {
-    if (!guild.members.cache.has(author.id)) continue;
-    const name = (guild.name || "").toLowerCase();
-    if (!name) continue;
-    if (name === normalized || name.includes(normalized)) {
-      matches.push(guild);
-    }
-  }
-  return matches;
-}
-
-class TimedMap {
-  constructor(ttlMs) {
-    this.ttlMs = ttlMs;
-    this.map = new Map();
-    this.timers = new Map();
-  }
-
-  set(key, value) {
-    this.map.set(key, value);
-    if (this.timers.has(key)) clearTimeout(this.timers.get(key));
-    this.timers.set(
-      key,
-      setTimeout(() => {
-        this.map.delete(key);
-        this.timers.delete(key);
-      }, this.ttlMs)
-    );
-  }
-
-  get(key) {
-    return this.map.get(key);
-  }
-
-  has(key) {
-    return this.map.has(key);
-  }
-}
-
-async function callAgent({ client, message, dmResolvedGuild }) {
+async function callAgent({ client, message, requestId }) {
+  const reqLog = scopedLogger(requestId);
   return retry(
     async (bail) => {
       try {
-        return await processWithAgent({ client, message, dmResolvedGuild });
+        return await processWithAgent({ client, message, requestId });
       } catch (err) {
         if (!isRetryable(err)) bail(err);
         throw err;
@@ -103,134 +70,53 @@ async function callAgent({ client, message, dmResolvedGuild }) {
       minTimeout: 2000,
       maxTimeout: 30_000,
       onRetry: (err, attempt) =>
-        logger.warn(`Retry ${attempt}/3 — ${err.code || err.status || err.message}`),
+        reqLog.warn(`Retry ${attempt}/3 — ${err.code || err.status || err.message}`),
     }
   );
 }
 
-const DM_GUILD_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const lastDMGuild = new TimedMap(DM_GUILD_TTL_MS);
-
-export { lastDMGuild, resolveDMGuild };
-
 export async function onMessage(message) {
   if (message.author.bot) return;
-  // Bug 15: guard against startup race when client.user is not yet set
-  if (!message.client.user) return;
-  const isDM = !message.guild;
-  if (!isDM && !message.mentions.has(message.client.user)) return;
+  if (!message.mentions.has(message.client.user)) return;
 
-  const { client, author, content = "" } = message;
-  let dmResolvedGuild = null;
-
-  if (isDM) {
-    // Bug 14: warm member cache before checking — fetch ensures membership is known
-    // even in large guilds where cache may be partial.
-    const memberGuilds = client.guilds.cache.filter((guild) =>
-      guild.members.cache.has(author.id)
-    );
-    // Try fetching membership for guilds where the user isn't cached yet
-    if (!memberGuilds.size) {
-      const fetchResults = await Promise.all(
-        [...client.guilds.cache.values()].map((g) =>
-          g.members.fetch(author.id).then(() => g).catch(() => null)
-        )
-      );
-      for (const g of fetchResults) {
-        if (g) memberGuilds.set(g.id, g);
-      }
-    }
-    if (!memberGuilds.size) {
-      logger.debug("Ignored DM from non-server member:", author.id);
-      return;
-    }
-
-    const cachedGuildId = lastDMGuild.get(author.id);
-    const requestedSwitch = looksLikeSwitchRequest(content)
-      ? extractSwitchTarget(content)
-      : null;
-
-    if (!cachedGuildId && requestedSwitch) {
-      const matches = resolveDMGuild(client, author, requestedSwitch);
-      if (matches.length === 1) {
-        lastDMGuild.set(author.id, matches[0].id);
-        dmResolvedGuild = matches[0];
-        await message.reply(
-          `Switched DM context to server "${matches[0].name}". Go ahead.`
-        ).catch(() => {});
-      } else if (matches.length > 1) {
-        const names = matches.map((g) => `"${g.name}"`).join(", ");
-        await message.reply(
-          `That matches multiple servers: ${names}. Please name the exact server.`
-        ).catch(() => {});
-        return;
-      } else {
-        await message.reply(
-          `I couldn't find a server matching "${requestedSwitch}" that you're in. Mention me there first, then continue here.`
-        ).catch(() => {});
-        return;
-      }
-    } else if (cachedGuildId && requestedSwitch) {
-      const matches = resolveDMGuild(client, author, requestedSwitch);
-      const exactMatch = matches.find((g) => g.id === cachedGuildId);
-      const ambiguous = matches.filter((g) => g.id !== cachedGuildId);
-
-      if (matches.length === 1) {
-        lastDMGuild.set(author.id, matches[0].id);
-        dmResolvedGuild = matches[0];
-        await message.reply(
-          `Switched DM context to server "${matches[0].name}".`
-        ).catch(() => {});
-      } else if (ambiguous.length > 0 && exactMatch) {
-        const names = ambiguous.map((g) => `"${g.name}"`).join(", ");
-        await message.reply(
-          `I'm already in "${exactMatch.name}". That also matches potential servers: ${names}. Use the full server name to switch.`
-        ).catch(() => {});
-        lastDMGuild.set(author.id, exactMatch.id);
-        dmResolvedGuild = exactMatch;
-      } else if (matches.length === 0) {
-        await message.reply(
-          `I couldn't find that server in your shared servers.`
-        ).catch(() => {});
-        return;
-      } else {
-        const names = matches.map((g) => `"${g.name}"`).join(", ");
-        await message.reply(
-          `Multiple servers match that name: ${names}. Please be specific.`
-        ).catch(() => {});
-        return;
-      }
-    } else if (!cachedGuildId && !requestedSwitch) {
-      const names = memberGuilds.map((g) => `"${g.name}"`).join(", ");
-      await message.reply(
-        `DM received, but I don't know which project/server yet. Mention me in that server first, or reply with its server name so I can pick the right project. Your servers: ${names}`
-      ).catch(() => {});
-      return;
-    } else if (cachedGuildId) {
-      const cached = memberGuilds.find((g) => g.id === cachedGuildId);
-      if (!cached) {
-        await message.reply(
-          "I can't find that server in your shared servers anymore. Use /switch or @mention me in the right server."
-        ).catch(() => {});
-        return;
-      }
-      dmResolvedGuild = cached;
-    }
-  } else if (message.guild?.id && author?.id) {
-    lastDMGuild.set(author.id, message.guild.id);
+  // Dedup: skip if this message was already processed (shard resume replay)
+  if (isDuplicate(message.id)) {
+    logger.debug(`Dedup: skipping replayed message ${message.id}`);
+    return;
   }
+  markProcessed(message.id);
 
-  try {
-    const response = await callAgent({ client, message, dmResolvedGuild });
-    if (response?.trim()) {
-      try {
-        await message.reply(response);
-      } catch (replyErr) {
-        logger.warn("Failed to send reply:", replyErr.message);
-      }
-    }
-  } catch (error) {
-    logger.error("Agent failed:", error.message || error);
-    await message.reply("Something went wrong — try again in a moment.").catch(() => {});
+  const { client } = message;
+  const userId = message.author.id;
+  const requestId = randomUUID().slice(0, 8);
+  const reqLog = scopedLogger(requestId);
+
+  // Per-user cooldown — reject rapid-fire mentions
+  if (isOnCooldown(userId)) {
+    reqLog.debug(`Cooldown hit for user ${userId}`);
+    await message.reply("Slow down — try again in a few seconds.").catch(() => {});
+    return;
   }
+  recordInvocation(userId);
+
+  reqLog.info(`Message from ${message.author.username} in #${message.channel?.name || "unknown"}`);
+
+  // Enqueue through p-queue for global concurrency control
+  agentQueue
+    .add(async () => {
+      const response = await callAgent({ client, message, requestId });
+      if (response?.trim()) {
+        try {
+          await message.reply(response);
+        } catch (replyErr) {
+          reqLog.warn("Failed to send reply:", replyErr.message);
+        }
+      }
+    })
+    .catch((error) => {
+      reqLog.error("Agent failed:", error.message || error);
+      message
+        .reply("Something went wrong — try again in a moment.")
+        .catch(() => {});
+    });
 }

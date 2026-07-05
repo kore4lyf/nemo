@@ -8,7 +8,7 @@ function normalize(m) {
     id: m.user.id,
     username: m.user.username,
     displayName: m.nickname ?? m.user.displayName ?? m.user.username,
-    roles: m.roles.cache.map((r) => r.name),
+    roles: [...m.roles.cache.keys()],
   };
 }
 
@@ -73,7 +73,7 @@ export const memberContext = [
           );
         }
 
-        return ok({ members: people, scanned: people.length });
+        return ok({ members: people, scanned: list.size });
       } catch (err) {
         return fail(err);
       }

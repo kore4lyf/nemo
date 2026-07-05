@@ -1,11 +1,64 @@
 import { z } from "zod";
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from "discord.js";
+import {
   channelIdField,
   messageIdField,
   contentField,
 } from "../shared/schemas.js";
 import { hasPermission, getRequiredPermission } from "../shared/permissions.js";
 import { ok, fail } from "../shared/response.js";
+
+/**
+ * Show a confirmation message with Confirm / Cancel buttons.
+ * Returns true if confirmed, false if cancelled or timed out.
+ */
+async function confirmAction(message, description) {
+  if (!message?.reply) return true; // no triggering message = skip confirmation (tests, DMs)
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("confirm_delete")
+      .setLabel("Confirm")
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId("cancel_delete")
+      .setLabel("Cancel")
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const confirmation = await message.reply({
+    content: `⚠️ **Are you sure?** ${description}`,
+    components: [row],
+    ephemeral: false,
+  });
+
+  try {
+    const interaction = await confirmation.awaitMessageComponent({
+      filter: (i) => i.user.id === message.author.id,
+      time: 30_000,
+    });
+
+    const confirmed = interaction.customId === "confirm_delete";
+    await interaction.update({
+      content: confirmed
+        ? `✅ ${description} — confirmed.`
+        : `❌ ${description} — cancelled.`,
+      components: [],
+    });
+    return confirmed;
+  } catch {
+    // Timeout — no response within 30s
+    await confirmation.edit({
+      content: `⏰ ${description} — timed out (cancelled).`,
+      components: [],
+    }).catch(() => {});
+    return false;
+  }
+}
 
 export const messageActions = [
   {
@@ -82,12 +135,12 @@ export const messageActions = [
   },
   {
     name: "delete_message",
-    description: "Delete a message by channelId and messageId.",
+    description: "Delete a message by channelId and messageId. Requires user confirmation.",
     schema: z.object({
       channelId: channelIdField,
       messageId: messageIdField,
     }),
-    async create(client, input) {
+    async create(client, input, { message } = {}) {
       const perm = getRequiredPermission("delete_message");
       if (
         !(await hasPermission({ client, channelId: input.channelId, permissionName: perm }))
@@ -95,8 +148,16 @@ export const messageActions = [
         return fail(`Missing permission: ${perm}`);
       try {
         const channel = await client.channels.fetch(input.channelId);
-        const message = await channel.messages.fetch(input.messageId);
-        await message.delete();
+        const msg = await channel.messages.fetch(input.messageId);
+
+        // Confirm before destructive action
+        const confirmed = await confirmAction(
+          message,
+          `Delete message \"${msg.content?.slice(0, 80) || "(empty)"}\" by ${msg.author?.username || "unknown"}?`
+        );
+        if (!confirmed) return fail("Deletion cancelled by user.");
+
+        await msg.delete();
         return ok();
       } catch (err) {
         return fail(err);
@@ -105,13 +166,13 @@ export const messageActions = [
   },
   {
     name: "edit_message",
-    description: "Edit a previously sent message.",
+    description: "Edit a previously sent message. Requires user confirmation.",
     schema: z.object({
       channelId: channelIdField,
       messageId: messageIdField,
       newContent: contentField(),
     }),
-    async create(client, input) {
+    async create(client, input, { message } = {}) {
       const perm = getRequiredPermission("edit_message");
       if (
         !(await hasPermission({ client, channelId: input.channelId, permissionName: perm }))
@@ -119,8 +180,16 @@ export const messageActions = [
         return fail(`Missing permission: ${perm}`);
       try {
         const channel = await client.channels.fetch(input.channelId);
-        const message = await channel.messages.fetch(input.messageId);
-        await message.edit(String(input.newContent));
+        const msg = await channel.messages.fetch(input.messageId);
+
+        // Confirm before editing someone else's message
+        const confirmed = await confirmAction(
+          message,
+          `Edit message \"${msg.content?.slice(0, 80) || "(empty)"}\" to \"${String(input.newContent).slice(0, 80)}\"?`
+        );
+        if (!confirmed) return fail("Edit cancelled by user.");
+
+        await msg.edit(String(input.newContent));
         return ok();
       } catch (err) {
         return fail(err);

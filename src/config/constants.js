@@ -57,7 +57,6 @@ export const TOOL_PERMISSIONS = {
   [TOOLS.DELETE_MESSAGE]: PERMS.MANAGE_MESSAGES,
   [TOOLS.EDIT_MESSAGE]: PERMS.MANAGE_MESSAGES,
   [TOOLS.CREATE_THREAD]: PERMS.CREATE_PUBLIC_THREADS,
-  create_thread_private: PERMS.CREATE_PRIVATE_THREADS,
 
   // Context tools
   [TOOLS.GET_MEMBERS]: PERMS.VIEW_CHANNEL,
@@ -77,7 +76,6 @@ export const TOOL_PERMISSIONS = {
   [TOOLS.CHECK_PROJECT_CHANNELS]: PERMS.VIEW_CHANNEL,
   [TOOLS.CREATE_PROJECT_CHANNELS]: PERMS.MANAGE_CHANNELS,
   [TOOLS.GET_EVENTS]: PERMS.VIEW_CHANNEL,
-  get_events: PERMS.VIEW_CHANNEL,
 };
 
 // Required project channels — hardcoded, matched case-insensitively
@@ -90,5 +88,5 @@ export const PROJECT_CHANNELS = {
 // Default LLM config (used in agent.js and env.js)
 export const LLM_DEFAULTS = {
   BASE_URL: "https://api.aimlapi.com/v1",
-  MODEL: "x-ai/grok-4-1-fast-reasoning",
+  MODEL: "alibaba/qwen3-vl-flash",
 };
