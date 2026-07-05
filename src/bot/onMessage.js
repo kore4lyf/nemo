@@ -40,7 +40,9 @@ function extractSwitchTarget(text) {
     /(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*(.+)/i
   );
   const raw = match?.[1]?.trim() || "";
-  const target = raw.split(/[—\-?!.,]+|\s+(?:and|then|what'?s|is|are|do|does|tell)\b/)[0].trim();
+  // Bug 3 fix: only split on trailing conjunctions/fillers, not on punctuation
+  // that can legitimately appear in server names (commas, dots, em-dashes).
+  const target = raw.split(/\s+(?:and\b|then\b|what'?s\b|is\b|are\b|do\b|does\b|tell\b)/)[0].trim();
   return target.replace(/^(?:the|my|a|an)\s+/i, "").trim() || null;
 }
 

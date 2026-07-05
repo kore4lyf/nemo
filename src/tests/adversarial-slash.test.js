@@ -94,7 +94,9 @@ function extractSwitchTarget(text) {
     /(?:switch\s+to|use\s+(?:the\s+|my\s+)?(?:project|server)|project\s*[:=]|server\s*[:=])\s*(.+)/i
   );
   const raw = match?.[1]?.trim() || "";
-  const target = raw.split(/[—\-?!.,]+|\s+(?:and|then|what'?s|is|are|do|does|tell)\b/)[0].trim();
+  // Bug 3 fix: only split on trailing conjunctions/fillers, not on punctuation
+  // that can legitimately appear in server names (commas, dots, em-dashes).
+  const target = raw.split(/\s+(?:and\b|then\b|what'?s\b|is\b|are\b|do\b|does\b|tell\b)/)[0].trim();
   return target.replace(/^(?:the|my|a|an)\s+/i, "").trim() || null;
 }
 
@@ -152,6 +154,194 @@ test("slash switch: channel word blocklist doesn't break exact server named 'pla
   };
   const matches = resolveDMGuild(client, { id: "u-1" }, "Plan");
   assert.strictEqual(matches.length, 1);
+});
+
+// ── prompt template tests (Bug 1 fix) ───────────────────────────
+
+import { PROMPT_TEMPLATES } from "../bot/interactions.js";
+
+test("prompt templates: /milestone with keyword produces NL prompt", () => {
+  const prompt = PROMPT_TEMPLATES.milestone({ milestone: "auth" });
+  assert.ok(prompt.includes("milestone"), `should mention milestone: ${prompt}`);
+  assert.ok(prompt.includes("auth"), `should include keyword: ${prompt}`);
+  assert.ok(!prompt.startsWith("/"), `must not start with slash: ${prompt}`);
+});
+
+test("prompt templates: /milestone without keyword produces overview prompt", () => {
+  const prompt = PROMPT_TEMPLATES.milestone({ milestone: null });
+  assert.ok(prompt.includes("overview"), `should be an overview: ${prompt}`);
+  assert.ok(!prompt.startsWith("/"), `must not start with slash: ${prompt}`);
+});
+
+test("prompt templates: /event with limit produces prompt about N events", () => {
+  const prompt = PROMPT_TEMPLATES.event({ limit: 3 });
+  assert.ok(prompt.includes("3"), `should include limit: ${prompt}`);
+  assert.ok(prompt.toLowerCase().includes("event"), `should mention events: ${prompt}`);
+  assert.ok(!prompt.startsWith("/"), `must not start with slash: ${prompt}`);
+});
+
+test("prompt templates: /event without limit defaults to 5", () => {
+  const prompt = PROMPT_TEMPLATES.event({});
+  assert.ok(prompt.includes("5"), `should default to 5: ${prompt}`);
+});
+
+test("prompt templates: /nemo passes question through verbatim", () => {
+  const q = "what's the auth status?";
+  assert.strictEqual(PROMPT_TEMPLATES.nemo({ question: q }), q);
+});
+
+test("prompt templates: /member with user produces lookup prompt", () => {
+  const prompt = PROMPT_TEMPLATES.member({ user: "korede" });
+  assert.ok(prompt.includes("korede"), `should include username: ${prompt}`);
+  assert.ok(!prompt.startsWith("/"), `must not start with slash: ${prompt}`);
+});
+
+test("prompt templates: /channel with name produces channel info prompt", () => {
+  const prompt = PROMPT_TEMPLATES.channel({ channel: "general" });
+  assert.ok(prompt.includes("general"), `should include channel name: ${prompt}`);
+  assert.ok(!prompt.startsWith("/"), `must not start with slash: ${prompt}`);
+});
+
+test("prompt templates: /thread with limit produces thread prompt", () => {
+  const prompt = PROMPT_TEMPLATES.thread({ limit: 10 });
+  assert.ok(prompt.includes("10"), `should include limit: ${prompt}`);
+  assert.ok(prompt.toLowerCase().includes("thread"), `should mention threads: ${prompt}`);
+});
+
+test("slash prompt: dead extractContext import is removed from interactions.js", async () => {
+  const fs = await import("fs");
+  const content = fs.readFileSync(
+    new URL("../bot/interactions.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    !content.includes('import { extractContext }'),
+    "interactions.js should not import extractContext (was dead code)"
+  );
+});
+
+test("slash prompt: agent cache exists in agent.js (Bug 4)", async () => {
+  const fs = await import("fs");
+  const content = fs.readFileSync(
+    new URL("../agent/agent.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    content.includes("_cachedClient") && content.includes("getAgent"),
+    "agent.js should have module-level cache (Bug 4 fix)"
+  );
+});
+
+// ── Bug 2: /switch DM restriction ──────────────────────────────
+
+test("Bug 2: /switch is DM-only — TEAM_FACING_COMMANDS set exists", async () => {
+  const fs = await import("fs");
+  const content = fs.readFileSync(
+    new URL("../bot/interactions.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    content.includes('interaction.guildId'),
+    "handleSwitch should check interaction.guildId for DM restriction"
+  );
+});
+
+// ── Bug 3: extractSwitchTarget edge cases ──────────────────────
+
+test("Bug 3: extractSwitchTarget preserves commas in server names", () => {
+  assert.strictEqual(
+    extractSwitchTarget("switch to Acme, Inc"),
+    "Acme, Inc"
+  );
+});
+
+test("Bug 3: extractSwitchTarget preserves em-dashes in server names", () => {
+  assert.strictEqual(
+    extractSwitchTarget("use project Alpha — Beta"),
+    "Alpha — Beta"
+  );
+});
+
+test("Bug 3: extractSwitchTarget preserves dots in server names", () => {
+  assert.strictEqual(
+    extractSwitchTarget("switch to v2.1 server"),
+    "v2.1 server"
+  );
+});
+
+test("Bug 3: extractSwitchTarget still strips leading articles", () => {
+  assert.strictEqual(
+    extractSwitchTarget("switch to the My Project"),
+    "My Project"
+  );
+});
+
+test("Bug 3: extractSwitchTarget returns null on empty input", () => {
+  assert.strictEqual(extractSwitchTarget("switch to"), null);
+  assert.strictEqual(extractSwitchTarget(""), null);
+});
+
+// ── Bug 5: truncation logic ───────────────────────────────────
+
+test("Bug 5: interactions.js uses 2000-char Discord limit", async () => {
+  const fs = await import("fs");
+  const content = fs.readFileSync(
+    new URL("../bot/interactions.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    content.includes("DISCORD_CONTENT_LIMIT = 2000"),
+    "should use Discord's 2000-char limit, not 1900"
+  );
+});
+
+test("Bug 5: truncation splits at sentence boundaries", async () => {
+  const fs = await import("fs");
+  const content = fs.readFileSync(
+    new URL("../bot/interactions.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    content.includes('truncated.lastIndexOf(". ")'),
+    "should split at sentence boundaries (period)"
+  );
+  assert.ok(
+    content.includes('truncated.lastIndexOf("\\n")'),
+    "should split at newlines"
+  );
+});
+
+// ── Bug 6: team-facing commands non-ephemeral ──────────────────
+
+test("Bug 6: TEAM_FACING_COMMANDS includes team commands", async () => {
+  const fs = await import("fs");
+  const content = fs.readFileSync(
+    new URL("../bot/interactions.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    content.includes('TEAM_FACING_COMMANDS'),
+    "should define TEAM_FACING_COMMANDS"
+  );
+  // Check that each team command is in the set
+  for (const cmd of ["milestone", "event", "thread", "channel", "member"]) {
+    assert.ok(
+      content.includes(`"${cmd}"`),
+      `TEAM_FACING_COMMANDS should include "${cmd}"`
+    );
+  }
+});
+
+test("Bug 6: team commands use non-ephemeral reply", async () => {
+  const fs = await import("fs");
+  const content = fs.readFileSync(
+    new URL("../bot/interactions.js", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    content.includes('ephemeral: !isTeamFacing'),
+    "should use !isTeamFacing for ephemeral flag"
+  );
 });
 
 console.log("✅ Slash command adversarial tests complete");

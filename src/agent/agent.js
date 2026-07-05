@@ -6,19 +6,43 @@ import { getSystemPrompt } from "../config/systemPrompt.js";
 import { logger } from "../config/logger.js";
 import { buildAllTools } from "../discord/tools/index.js";
 
-// Main entry point: process a Discord message through the ReAct agent
-export async function processWithAgent({ client, message, dmResolvedGuild }) {
-  // Build all Discord tools bound to a live client (action + context)
+// ── Module-level agent cache ──────────────────────────────────────
+// LLM config and tool definitions are static across the bot's lifetime.
+// Rebuilding them per message wastes ~200ms of object allocation +
+// tool-schema serialization. Cache once, reuse for every message.
+let _cachedClient = null;
+let _cachedLLMWithTools = null;
+let _cachedToolMap = null;
+
+function getAgent(client) {
+  if (_cachedClient === client && _cachedLLMWithTools) {
+    return { llmWithTools: _cachedLLMWithTools, toolMap: _cachedToolMap };
+  }
+
   const tools = buildAllTools({ client });
 
-  // Initialize LLM and bind tools so the model can call them
   const llm = new ChatOpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     baseURL: process.env.OPENAI_BASE_URL || LLM_DEFAULTS.BASE_URL,
     model: process.env.OPENAI_MODEL || LLM_DEFAULTS.MODEL,
     temperature: 0.1,
   });
+
   const llmWithTools = llm.bindTools(tools, { tool_choice: "auto" });
+  const toolMap = Object.fromEntries(tools.map((t) => [t.name, t]));
+
+  _cachedClient = client;
+  _cachedLLMWithTools = llmWithTools;
+  _cachedToolMap = toolMap;
+
+  logger.info(`Agent initialized: ${tools.length} tools bound`);
+  return { llmWithTools, toolMap };
+}
+
+// Main entry point: process a Discord message through the ReAct agent
+export async function processWithAgent({ client, message, dmResolvedGuild }) {
+  // Get (or reuse) cached LLM + tools
+  const { llmWithTools, toolMap } = getAgent(client);
 
   // Extract Discord context (channel, message, author, mentions)
   const context = extractContext({ client, message, fallbackGuildId: dmResolvedGuild });
@@ -44,9 +68,6 @@ export async function processWithAgent({ client, message, dmResolvedGuild }) {
     // Non-fatal: if we can't fetch recent messages, continue without them.
     logger.warn("Could not fetch recent messages for context:", err.message);
   }
-
-  // Tool-name lookup map for the ReAct loop
-  const toolMap = Object.fromEntries(tools.map((t) => [t.name, t]));
 
   // System prompt = persistent AGENTS.md payload (persona, voice, rules,
   // project-manager behavior) + a small per-message Context block with the

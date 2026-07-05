@@ -1,11 +1,41 @@
 import {
   processWithAgent,
 } from "../agent/agent.js";
-import { extractContext } from "../discord/context.js";
-import { buildAllTools } from "../discord/tools/index.js";
 import { logger } from "../config/logger.js";
-import { resolveDMGuild } from "../bot/onMessage.js";
-import { lastDMGuild } from "../bot/onMessage.js";
+import { resolveDMGuild, lastDMGuild } from "../bot/onMessage.js";
+
+// ── Slash command → natural-language prompt templates ──────────────
+// These turn structured slash options into prompts the LLM actually
+// understands, instead of raw "/milestone milestone=auth" strings.
+const PROMPT_TEMPLATES = {
+  nemo: ({ question }) => question,
+
+  milestone: ({ milestone }) =>
+    milestone
+      ? `Show milestone status for milestone: "${milestone}". Search #milestones for it and report its title, status, owner, dates, and any blockers.`
+      : "Give me an overview of all milestones — list each with its status, owner, and end date.",
+
+  member: ({ user }) =>
+    user
+      ? `Look up member "${user}" in this server. Show their username, roles, and any relevant information.`
+      : "List all members in this server.",
+
+  event: ({ limit }) =>
+    `Show the next ${limit ?? 5} upcoming events for this server. For each event, include the name, date/time, description, and channel if available.`,
+
+  thread: ({ limit }) =>
+    `Show the ${limit ?? 5} most recently active threads. For each, include the thread name, channel it's in, creator, and last activity.`,
+
+  channel: ({ channel }) =>
+    channel
+      ? `Show information about the channel "${channel}" — its name, topic, category, member count, and recent activity.`
+      : "Give me an overview of channels in this server — list each with its category, topic, and recent message count.",
+};
+
+// Bug 6 fix: team-facing commands reply non-ephemerally so the team sees them
+const TEAM_FACING_COMMANDS = new Set(["milestone", "event", "thread", "channel", "member"]);
+
+export { PROMPT_TEMPLATES };
 
 async function deferOrReply(interaction, { content, ephemeral = true }) {
   try {
@@ -20,6 +50,15 @@ async function deferOrReply(interaction, { content, ephemeral = true }) {
 }
 
 async function handleSwitch(interaction) {
+  // Bug 2 fix: /switch only makes sense in DMs — reject in guild channels
+  if (interaction.guildId) {
+    await interaction.reply({
+      content: "/switch is only available in DMs. I already know which server you're in here.",
+      ephemeral: true,
+    });
+    return;
+  }
+
   const query = interaction.options.getString("server", true);
   const authorId = interaction.user.id;
   const client = interaction.client;
@@ -88,15 +127,23 @@ async function handleCommand(interaction) {
     return;
   }
 
-  // Route other commands through the agent with a tool-call prompt.
-  const args = [];
+  // ── Build a real NL prompt from slash options ────────────────────
+  // Collect options into a flat object keyed by name
+  const optMap = {};
   options.data.forEach((opt) => {
-    args.push(`${opt.name}=${opt.value}`);
+    optMap[opt.name] = opt.value;
   });
 
+  const promptFn = PROMPT_TEMPLATES[name];
+  const prompt = promptFn ? promptFn(optMap) : `${name} ${Object.values(optMap).join(" ")}`;
+
+  // ── Resolve guild for DM context ────────────────────────────────
+  const dmResolvedGuild = getEffectiveGuildId(client, interaction);
+
+  // ── Synthetic message the agent can work with ───────────────────
   const syntheticMessage = {
     id: interaction.id,
-    content: `/nemo ${name} ${args.join(" ")}`.trim(),
+    content: prompt,
     author: interaction.user,
     channel: interaction.channel,
     guild: interaction.guild,
@@ -104,28 +151,42 @@ async function handleCommand(interaction) {
     client,
   };
 
-  const context = extractContext({
-    client,
-    message: syntheticMessage,
-    fallbackGuildId: interaction.guildId,
-  });
-
   try {
     const response = await processWithAgent({
       client,
       message: syntheticMessage,
-      dmResolvedGuild: null,
+      dmResolvedGuild,
     });
 
     const trimmed = response?.trim();
+    const isTeamFacing = TEAM_FACING_COMMANDS.has(name);
     if (!trimmed) {
-      await interaction.reply({ content: "Done.", ephemeral: true });
+      await interaction.reply({ content: "Done.", ephemeral: !isTeamFacing });
       return;
     }
 
+    const DISCORD_CONTENT_LIMIT = 2000;
+    let replyContent = trimmed;
+    if (trimmed.length > DISCORD_CONTENT_LIMIT) {
+      // Bug 5 fix: split at last sentence boundary before the limit
+      const truncated = trimmed.slice(0, DISCORD_CONTENT_LIMIT);
+      const lastSentence = Math.max(
+        truncated.lastIndexOf("\n"),
+        truncated.lastIndexOf(". "),
+        truncated.lastIndexOf("! "),
+        truncated.lastIndexOf("? ")
+      );
+      replyContent = lastSentence > 200
+        ? truncated.slice(0, lastSentence + 1).trimEnd()
+        : `${truncated.slice(0, DISCORD_CONTENT_LIMIT - 1)}…`;
+      logger.warn(
+        `Slash response truncated: ${trimmed.length} → ${replyContent.length} chars`
+      );
+    }
+
     await interaction.reply({
-      content: trimmed.length > 1900 ? `${trimmed.slice(0, 1900)}…` : trimmed,
-      ephemeral: true,
+      content: replyContent,
+      ephemeral: !isTeamFacing,
     });
   } catch (err) {
     logger.error("Slash command agent error:", err);
@@ -134,6 +195,30 @@ async function handleCommand(interaction) {
       ephemeral: true,
     });
   }
+}
+
+/**
+ * Resolve the effective guild ID for a slash interaction.
+ * In DMs: use the last-seen guild (from DM guild mapping).
+ * In guilds: use the interaction's own guild ID.
+ */
+function getEffectiveGuildId(client, interaction) {
+  // In a guild channel — direct match
+  if (interaction.guildId) return interaction.guildId;
+
+  // In DM — check the last-used guild cache
+  const dmGuild = lastDMGuild.get(interaction.user.id);
+  if (dmGuild) return dmGuild;
+
+  // Fallback: try matching DM guild by user membership
+  const matches = resolveDMGuild(
+    client,
+    interaction.user,
+    interaction.user.username
+  );
+  if (matches.length === 1) return matches[0].id;
+
+  return null;
 }
 
 export async function handleInteraction(interaction) {
