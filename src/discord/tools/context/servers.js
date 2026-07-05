@@ -13,6 +13,8 @@ export const serverContext = [
       try {
         const guild = await client.guilds.fetch(input.guildId);
         const perm = getRequiredPermission("get_server_state");
+
+        // Permission check: try first cached channel, fall back to guild-level check
         const firstChannel = [...guild.channels.cache.values()][0];
         if (firstChannel) {
           const ok2 = await hasPermission({
@@ -21,6 +23,22 @@ export const serverContext = [
             permissionName: perm,
           });
           if (!ok2) return fail(`Missing permission: ${perm}`);
+        } else {
+          // No cached channels — try fetching one to verify permission
+          try {
+            const channels = await guild.channels.fetch();
+            const fallback = channels.first();
+            if (fallback) {
+              const ok2 = await hasPermission({
+                client,
+                channelId: fallback.id,
+                permissionName: perm,
+              });
+              if (!ok2) return fail(`Missing permission: ${perm}`);
+            }
+          } catch {
+            // Can't verify permission — proceed with what we have
+          }
         }
 
         let pinned = 0;

@@ -10,7 +10,7 @@ Nemo maintains awareness of your project's state, team structure, objectives, ti
 
 - **Conversational project management** — Talk to Nemo in plain language. It decides what to do, calls the right Discord tools, and reports back.
 - **ReAct agent loop** — Powered by a LangChain reasoning-acting loop: the LLM reasons about each request, selects tools, executes them, and synthesizes a response.
-- **10 Discord tools** — Send/edit/delete/pin messages, create threads, add reactions, inspect channels, and list active threads.
+- **23 Discord tools** — Send/edit/delete/pin messages, create threads, add reactions, inspect channels, list threads, get member info, check project channels, and more.
 - **Permission-aware** — Every tool checks the bot's actual Discord permissions before acting. If a permission is missing, Nemo reports it cleanly instead of crashing.
 - **Resilient by design** — Transient network/API failures are retried with exponential backoff. Rate limits (429) and 5xx errors are retried; content-moderation blocks fail fast.
 - **Structured logging** — Timestamped, leveled logging (debug/info/warn/error) with a configurable `LOG_LEVEL`.
@@ -52,7 +52,7 @@ Discord Gateway
 1. A user sends a message in a channel where Nemo is present.
 2. `onMessage` filters out bot messages, then calls `processWithAgent` through a retry wrapper.
 3. `processWithAgent`:
-   - Builds all 10 Discord tools bound to the live client.
+   - Builds all 23 Discord tools bound to the live client.
    - Initializes a `ChatOpenAI` LLM and binds the tools to it.
    - Extracts Discord context (channel, author, mentions) and injects it into the system prompt.
    - Runs a **ReAct loop** (max 6 iterations): LLM → tool calls → execute → feed results back → repeat until the LLM returns a final text response.
@@ -62,7 +62,9 @@ Discord Gateway
 
 ## Tools and Permissions
 
-Nemo's agent has access to 10 Discord tools. Each tool is gated by a permission check before execution.
+Nemo's agent has access to 23 Discord tools. Each tool is gated by a permission check before execution.
+
+### Action Tools
 
 | Tool | Action | Required Discord Permission |
 |------|--------|------------------------------|
@@ -72,10 +74,28 @@ Nemo's agent has access to 10 Discord tools. Each tool is gated by a permission 
 | `create_thread` | Create a public or private thread | `CreatePublicThreads` / `CreatePrivateThreads` |
 | `send_thread_message` | Post a message inside an existing thread | `SendMessagesInThreads` |
 | `add_reaction` | Add an emoji reaction to a message | `AddReactions` |
-| `delete_message` | Delete a message | `ManageMessages` |
-| `edit_message` | Edit a previously sent message | `ManageMessages` |
+| `delete_message` | Delete a message (with confirmation) | `ManageMessages` |
+| `edit_message` | Edit a previously sent message (with confirmation) | `ManageMessages` |
+
+### Context Tools
+
+| Tool | Action | Required Discord Permission |
+|------|--------|------------------------------|
+| `get_members` | List server members with roles and status | `ViewChannel` |
+| `get_channels` | List all channels in a server | `ViewChannel` |
 | `get_channel_info` | Fetch channel metadata | `ViewChannel` |
-| `list_threads` | List active threads in a channel or guild | `ViewChannel` |
+| `get_pinned_messages` | Get pinned messages in a channel | `ReadMessageHistory` |
+| `get_recent_messages` | Get recent messages in a channel | `ReadMessageHistory` |
+| `get_message` | Get a specific message by ID | `ReadMessageHistory` |
+| `get_active_threads` | List active threads | `ViewChannel` |
+| `list_threads` | List threads by channel or guild | `ViewChannel` |
+| `get_thread_history` | Get message history of a thread | `ReadMessageHistory` |
+| `get_server_state` | Get server overview (members, channels, threads) | `ViewChannel` |
+| `get_milestones` | Read messages from #milestones channel | `ReadMessageHistory` |
+| `get_introduction` | Read messages from #introduction channel | `ReadMessageHistory` |
+| `check_project_channels` | Check if required project channels exist | `ViewChannel` |
+| `create_project_channels` | Create missing project channels | `ManageChannels` |
+| `get_events` | List scheduled events | `ViewChannel` |
 
 If the bot lacks the required permission, the tool returns `{ success: false, error: "Missing permission: <PERM>" }` and the agent reports this to the user gracefully.
 
@@ -128,7 +148,8 @@ GUILD_ID=optional_guild_id_for_dev
 
 When inviting the bot, grant at least these **privileged intents**:
 
-- **Server Members Intent** (not required for current tools, but recommended)
+- **Server Members Intent** (required for `get_members` with presence)
+- **Server Presences Intent** (required for member status info)
 - **Message Content Intent** (required — Nemo reads message content)
 - **Server Messages Intent** (recommended)
 

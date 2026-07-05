@@ -121,7 +121,7 @@ async function fetchRecentContext(message) {
     if (!fetched || fetched.size === 0) return [];
 
     // Filter: no bot messages, no empty content, newest first → reverse for chronological
-    const recent = []
+    const recent = [...fetched.values()]
       .filter((msg) => !msg.author?.bot && msg.content?.trim())
       .slice(0, CONTEXT_MESSAGE_COUNT)
       .reverse(); // oldest first for LLM context
