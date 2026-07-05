@@ -115,6 +115,8 @@ export { lastDMGuild, resolveDMGuild };
 
 export async function onMessage(message) {
   if (message.author.bot) return;
+  // Bug 15: guard against startup race when client.user is not yet set
+  if (!message.client.user) return;
   const isDM = !message.guild;
   if (!isDM && !message.mentions.has(message.client.user)) return;
 
@@ -122,9 +124,22 @@ export async function onMessage(message) {
   let dmResolvedGuild = null;
 
   if (isDM) {
+    // Bug 14: warm member cache before checking — fetch ensures membership is known
+    // even in large guilds where cache may be partial.
     const memberGuilds = client.guilds.cache.filter((guild) =>
       guild.members.cache.has(author.id)
     );
+    // Try fetching membership for guilds where the user isn't cached yet
+    if (!memberGuilds.size) {
+      const fetchResults = await Promise.all(
+        [...client.guilds.cache.values()].map((g) =>
+          g.members.fetch(author.id).then(() => g).catch(() => null)
+        )
+      );
+      for (const g of fetchResults) {
+        if (g) memberGuilds.set(g.id, g);
+      }
+    }
     if (!memberGuilds.size) {
       logger.debug("Ignored DM from non-server member:", author.id);
       return;
@@ -192,7 +207,14 @@ export async function onMessage(message) {
       ).catch(() => {});
       return;
     } else if (cachedGuildId) {
-      dmResolvedGuild = memberGuilds.find((g) => g.id === cachedGuildId) || null;
+      const cached = memberGuilds.find((g) => g.id === cachedGuildId);
+      if (!cached) {
+        await message.reply(
+          "I can't find that server in your shared servers anymore. Use /switch or @mention me in the right server."
+        ).catch(() => {});
+        return;
+      }
+      dmResolvedGuild = cached;
     }
   } else if (message.guild?.id && author?.id) {
     lastDMGuild.set(author.id, message.guild.id);

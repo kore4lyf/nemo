@@ -29,11 +29,14 @@ export const channelContext = [
           });
           if (!ok2) return fail(`Missing permission: ${perm}`);
         }
-        const channels = [...guild.channels.cache.values()].map((c) => ({
+        const channels = [...guild.channels.cache.values()]
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+          .map((c) => ({
           id: c.id,
           name: c.name,
           type: c.type,
           parentId: c.parentId ?? null,
+          parentName: c.parent?.name ?? null,
         }));
         return ok({ channels });
       } catch (err) {
@@ -75,7 +78,10 @@ export const channelContext = [
       const perm = getRequiredPermission("check_project_channels");
       try {
         const guild = await client.guilds.fetch(input.guildId);
-        const first = [...guild.channels.cache.values()][0];
+        const probeChannels = [...guild.channels.cache.values()]
+          .filter((c) => c.isTextBased?.())
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        const first = probeChannels[0];
         if (first) {
           const ok2 = await hasPermission({
             client,

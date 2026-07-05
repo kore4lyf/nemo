@@ -34,9 +34,11 @@ async function main() {
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,  // required for member tools + DM routing
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.GuildPresences, // enables presence.status in get_members
     ],
     rest: { timeout: 30_000 },
   });

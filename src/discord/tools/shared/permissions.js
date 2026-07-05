@@ -4,13 +4,13 @@ import { TOOL_PERMISSIONS, PERMS } from "../../../config/constants.js";
 const PermissionsBitField = {
   [PERMS.VIEW_CHANNEL]: 0x400n,
   [PERMS.SEND_MESSAGES]: 0x800n,
-  [PERMS.SEND_MESSAGES_IN_THREADS]: 0x4000000n,
+  [PERMS.SEND_MESSAGES_IN_THREADS]: 0x4000000000n,  // was 0x4000000n (ChangeNickname)
   [PERMS.ADD_REACTIONS]: 0x40n,
-  [PERMS.PIN_MESSAGES]: 0x20n,
+  [PERMS.PIN_MESSAGES]: 0x8000000000000n,            // was 0x20n (ManageGuild)
   [PERMS.MANAGE_MESSAGES]: 0x2000n,
   [PERMS.MANAGE_CHANNELS]: 0x10n,
-  [PERMS.CREATE_PUBLIC_THREADS]: 0x8000000000n,
-  [PERMS.CREATE_PRIVATE_THREADS]: 0x10000000000n,
+  [PERMS.CREATE_PUBLIC_THREADS]: 0x800000000n,       // was 0x8000000000n (UseEmbeddedActivities)
+  [PERMS.CREATE_PRIVATE_THREADS]: 0x1000000000n,     // was 0x10000000000n (ModerateMembers)
   [PERMS.READ_MESSAGE_HISTORY]: 0x10000n,
   // Legacy keys preserved for back-compat with older callers/tests
   ReadMessageHistory: 0x10000n,

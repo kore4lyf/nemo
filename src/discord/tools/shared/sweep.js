@@ -11,14 +11,16 @@ import { hasPermission, getRequiredPermission } from "../shared/permissions.js";
  * @param {string} guildId - guild to resolve the channel in
  * @returns {Promise<{ ok: boolean, error?: string, messages?: array }>}
  */
-export async function sweepChannelByName({ client, channelName, guildId }) {
+export async function sweepChannelByName({ client, channelName, guildId, maxMessages = 500 }) {
   try {
     const guild = await client.guilds.fetch(guildId);
-    const channel = guild.channels?.cache?.values
-      ? [...guild.channels.cache.values()].find(
-          (c) => c.name?.toLowerCase() === channelName.toLowerCase()
-        )
-      : null;
+    // Prefer fresh fetch from API; fall back to cache for mocks/test environments
+    const allChannels = guild.channels.fetch
+      ? await guild.channels.fetch().catch(() => guild.channels.cache)
+      : guild.channels.cache;
+    const channel = [...allChannels.values()].find(
+      (c) => c.name?.toLowerCase() === channelName.toLowerCase()
+    );
 
     if (!channel) {
       const pretty =
@@ -67,6 +69,8 @@ export async function sweepChannelByName({ client, channelName, guildId }) {
           createdAt: msg.createdTimestamp ?? null,
         });
       }
+
+      if (collected.length >= maxMessages) break;
 
       before = page.last()?.id ?? null;
       if (!before) {

@@ -27,10 +27,11 @@ export const threadActions = [
         type = "public",
         autoArchiveDuration,
       } = input;
-      const perm =
+      const perm = getRequiredPermission(
         type === "private"
-          ? "CreatePrivateThreads"
-          : "CreatePublicThreads";
+          ? "create_thread_private"
+          : "create_thread"
+      );
       if (
         !(await hasPermission({ client, channelId, permissionName: perm }))
       )
