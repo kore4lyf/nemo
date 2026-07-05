@@ -2,6 +2,7 @@ import retry from "async-retry";
 import { randomUUID } from "node:crypto";
 import { processWithAgent } from "../agent/agent.js";
 import { logger, scopedLogger } from "../config/logger.js";
+import { logDiscordMessage } from "../logging/conversationLogger.js";
 import { agentQueue, isOnCooldown, recordInvocation, CooldownError } from "./queue.js";
 
 // ── Message dedup ──────────────────────────────────────────────────────
@@ -99,6 +100,9 @@ export async function onMessage(message) {
   recordInvocation(userId);
 
   reqLog.info(`Message from ${message.author.username} in #${message.channel?.name || "unknown"}`);
+
+  // Conversation-aware context logging
+  logDiscordMessage({ message });
 
   // Enqueue through p-queue for global concurrency control
   agentQueue
