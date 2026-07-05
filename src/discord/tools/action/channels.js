@@ -20,7 +20,19 @@ export const channelActions = [
       const perm = getRequiredPermission("create_project_channels");
       try {
         const guild = await client.guilds.fetch(input.guildId);
-        const first = [...guild.channels.cache.values()][0];
+
+        // Ensure channels cache is populated — fetch from API if empty
+        let channels = [...guild.channels.cache.values()];
+        if (channels.length === 0) {
+          try {
+            const fetched = await guild.channels.fetch();
+            channels = [...fetched.values()];
+          } catch {
+            // Proceed with empty list; permission check will use guild-level fallback
+          }
+        }
+
+        const first = channels[0];
 
         // Check ViewChannel first (always needed), then ManageChannels
         const viewPerm = "ViewChannel";
@@ -35,7 +47,7 @@ export const channelActions = [
 
         const okManage = await hasPermission({
           client,
-          channelId: first?.id ?? guild.channels.cache.first()?.id,
+          channelId: first?.id,
           permissionName: perm,
         });
         if (!okManage) return fail(`Missing permission: ${perm}`);

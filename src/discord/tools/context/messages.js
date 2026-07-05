@@ -73,7 +73,7 @@ export const messageContext = [
       messageId: messageIdField,
     }),
     async create(client, input) {
-      const perm = getRequiredPermission("get_recent_messages");
+      const perm = getRequiredPermission("get_message");
       if (
         !(await hasPermission({ client, channelId: input.channelId, permissionName: perm }))
       )

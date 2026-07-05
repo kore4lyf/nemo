@@ -91,10 +91,9 @@ export async function onMessage(message) {
   const requestId = randomUUID().slice(0, 8);
   const reqLog = scopedLogger(requestId);
 
-  // Per-user cooldown — reject rapid-fire mentions
+  // Per-user cooldown — silently skip rapid-fire mentions
   if (isOnCooldown(userId)) {
     reqLog.debug(`Cooldown hit for user ${userId}`);
-    await message.reply("Slow down — try again in a few seconds.").catch(() => {});
     return;
   }
   recordInvocation(userId);
@@ -117,6 +116,6 @@ export async function onMessage(message) {
       reqLog.error("Agent failed:", error.message || error);
       message
         .reply("Something went wrong — try again in a moment.")
-        .catch(() => {});
+        .catch((replyErr) => reqLog.warn("Failed to send error reply:", replyErr.message));
     });
 }
