@@ -1,11 +1,40 @@
 import "dotenv/config";
 import "./config/env.js";
+import http from "node:http";
 import { Client, GatewayIntentBits, Events } from "discord.js";
 import { logger } from "./config/logger.js";
 import { onMessage } from "./bot/onMessage.js";
 import { agentQueue } from "./bot/queue.js";
 
 let client;
+
+function startHealthServer() {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/health" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        status: "ok",
+        uptime: process.uptime(),
+        discord: client?.isReady() ? "connected" : "connecting",
+        queueSize: agentQueue?.size ?? 0,
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  const PORT = Number(process.env.HEALTH_PORT) || 8080;
+  server.listen(PORT, () => {
+    logger.info(`Health server listening on port ${PORT}`);
+  });
+
+  server.on("error", (err) => {
+    logger.error("Health server error:", err.message);
+  });
+
+  return server;
+}
 
 async function main() {
   logger.info("Nemo starting...");
@@ -83,6 +112,9 @@ function shutdown(signal) {
     process.exit(0);
   });
 }
+
+// Start health server for platform keepalive / health checks
+startHealthServer();
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
