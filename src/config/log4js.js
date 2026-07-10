@@ -29,8 +29,20 @@ log4js.configure({
       mode: 0o640,
       layout: { type: "pattern", pattern: "%d %p %m" },
     },
+    agent: {
+      type: "file",
+      filename: path.join(LOG_DIR, "nemo-agent.log"),
+      maxLogSize: 50 * 1024 * 1024,
+      backups: 20,
+      compress: true,
+      mode: 0o640,
+      layout: { type: "pattern", pattern: "%d %p %m" },
+    },
   },
-  categories: { default: { appenders: ["out", "file"], level: process.env.LOG_LEVEL || "info" } },
+  categories: {
+    default: { appenders: ["out", "file"], level: process.env.LOG_LEVEL || "info" },
+    agent: { appenders: ["agent"], level: "info" },
+  },
 });
 
 export const getLogger = (category = "default") => log4js.getLogger(category);

@@ -4,7 +4,10 @@ import { extractContext } from "../discord/context.js";
 import { LLM_DEFAULTS } from "../config/constants.js";
 import { getSystemPrompt } from "../config/systemPrompt.js";
 import { logger, scopedLogger } from "../config/logger.js";
+import { getLogger } from "../config/log4js.js";
 import { buildAllTools } from "../discord/tools/index.js";
+
+const agentTrace = getLogger("agent");
 
 // Main entry point: process a Discord message through the ReAct agent
 export async function processWithAgent({ client, message, requestId }) {
@@ -53,6 +56,21 @@ export async function processWithAgent({ client, message, requestId }) {
   const messages = [systemMessage, ...contextMessages, new HumanMessage(message.content)];
   const MAX_ITERATIONS = 6;
 
+  // ── Agent trace ────────────────────────────────────────────────
+  // Structured logging of every step: user message → tool calls → results → final output.
+  // Written to logs/nemo-agent.log for offline analysis / improvement.
+  const trace = {
+    requestId,
+    channel: context.currentChannel?.name ?? "unknown",
+    guild: context.currentChannel?.guildId ?? "?",
+    user: context.currentMessage?.author ?? "unknown",
+    userMessage: message.content.slice(0, 2000),
+    model: process.env.OPENAI_MODEL || LLM_DEFAULTS.MODEL,
+    steps: [],
+    finalOutput: null,
+    error: null,
+  };
+
   try {
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       // Call the LLM (with tools bound)
@@ -61,10 +79,14 @@ export async function processWithAgent({ client, message, requestId }) {
 
       // If no tool calls, the model is done — return the final text
       if (!response.tool_calls || response.tool_calls.length === 0) {
-        return response.content || "Done. Let me know if there's anything else you need.";
+        const output = response.content || "Done. Let me know if there's anything else you need.";
+        trace.finalOutput = typeof output === "string" ? output.slice(0, 2000) : JSON.stringify(output).slice(0, 2000);
+        agentTrace.info(JSON.stringify(trace));
+        reqLog.info(`Agent done (${i + 1} iterations)`);
+        return output;
       }
 
-      // Execute every tool call the model requested
+      // Log each tool call + result
       for (const call of response.tool_calls) {
         const fn = toolMap[call.name];
         if (!fn) {
@@ -74,8 +96,17 @@ export async function processWithAgent({ client, message, requestId }) {
               tool_call_id: call.id,
             })
           );
+          trace.steps.push({
+            iteration: i,
+            tool: call.name,
+            args: call.args,
+            success: false,
+            error: `Unknown tool: ${call.name}`,
+          });
           continue;
         }
+
+        reqLog.info(`Tool[${i}]: ${call.name}(${JSON.stringify(call.args).slice(0, 500)})`);
 
         // Invoke the tool with the LLM's arguments
         const result = await fn.invoke(call.args);
@@ -85,6 +116,20 @@ export async function processWithAgent({ client, message, requestId }) {
             tool_call_id: call.id,
           })
         );
+
+        const isError = result && typeof result === "object" && (result.success === false || result.error);
+        const resultSummary = isError
+          ? { success: false, error: result.error || result.message || "unknown" }
+          : { success: true, summary: truncateResult(result) };
+
+        trace.steps.push({
+          iteration: i,
+          tool: call.name,
+          args: call.args,
+          ...resultSummary,
+        });
+
+        reqLog.info(`Tool[${i}] ${call.name}: ${resultSummary.success ? "OK" : "FAIL"}`);
       }
     }
 
@@ -93,8 +138,15 @@ export async function processWithAgent({ client, message, requestId }) {
       ...messages,
       new HumanMessage("Please summarise what you did so far."),
     ]);
-    return final.content || "Done — iteration limit reached.";
+    const output = final.content || "Done — iteration limit reached.";
+    trace.finalOutput = typeof output === "string" ? output.slice(0, 2000) : JSON.stringify(output).slice(0, 2000);
+    trace.exhausted = true;
+    agentTrace.info(JSON.stringify(trace));
+    reqLog.info(`Agent done (iteration limit)`);
+    return output;
   } catch (error) {
+    trace.error = error.message;
+    agentTrace.info(JSON.stringify(trace));
     reqLog.error("Agent error:", error);
     // Rethrow so the retry wrapper in onMessage.js can classify and retry
     // transient errors (429, 5xx, network). Permanent errors (4xx, content
@@ -102,6 +154,36 @@ export async function processWithAgent({ client, message, requestId }) {
     // returned to the user as a failure message.
     throw error;
   }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+// Truncate a tool result to a compact summary suitable for log analysis.
+function truncateResult(result, maxLen = 500) {
+  if (!result) return String(result);
+  if (typeof result !== "object") {
+    const s = String(result);
+    return s.length > maxLen ? s.slice(0, maxLen) + "..." : s;
+  }
+
+  // Arrays: summarise length, truncate first few items
+  if (Array.isArray(result)) {
+    if (result.length === 0) return "[]";
+    const items = result.slice(0, 3).map((item) => truncateResult(item, 100));
+    const rest = result.length > 3 ? `... (+${result.length - 3} more)` : "";
+    return `[${items.join(", ")}${rest}]`;
+  }
+
+  // Objects: truncate each value
+  const entries = Object.entries(result).slice(0, 12);
+  const truncated = entries.map(([k, v]) => {
+    if (v === null || v === undefined) return `${k}: null`;
+    if (typeof v === "string") return `${k}: ${v.length > 120 ? v.slice(0, 120) + "..." : v}`;
+    if (typeof v === "object") return `${k}: ${truncateResult(v, 80)}`;
+    return `${k}: ${v}`;
+  });
+  const joined = truncated.join(", ");
+  return joined.length > maxLen ? joined.slice(0, maxLen) + "..." : `{${joined}}`;
 }
 
 // ── Conversation context ─────────────────────────────────────────────

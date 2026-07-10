@@ -110,6 +110,7 @@ export async function onMessage(message) {
       const response = await callAgent({ client, message, requestId });
       if (response?.trim()) {
         try {
+          reqLog.info(`Replying: ${response.slice(0, 500)}`);
           await message.reply(response);
         } catch (replyErr) {
           reqLog.warn("Failed to send reply:", replyErr.message);
