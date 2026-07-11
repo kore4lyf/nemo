@@ -21,7 +21,7 @@ export async function processWithAgent({ client, message, requestId }) {
     apiKey: process.env.OPENAI_API_KEY,
     baseURL: process.env.OPENAI_BASE_URL || LLM_DEFAULTS.BASE_URL,
     model: process.env.OPENAI_MODEL || LLM_DEFAULTS.MODEL,
-    temperature: 0.1,
+    temperature: 0,
   });
   const llmWithTools = llm.bindTools(tools);
 

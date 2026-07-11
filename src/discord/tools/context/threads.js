@@ -61,17 +61,36 @@ export const threadContext = [
       if (!sorted.channelId && !sorted.guildId)
         return fail("channelId or guildId is required.");
 
-      if (sorted.channelId) {
-        const perm = getRequiredPermission("list_threads");
-        if (
-          !(await hasPermission({
+      // Permission check - use first channel as proxy for guild-level access
+      const perm = getRequiredPermission("list_threads");
+      let permCheckOk = true;
+      try {
+        if (sorted.channelId) {
+          permCheckOk = await hasPermission({
             client,
             channelId: sorted.channelId,
             permissionName: perm,
-          }))
-        )
-          return fail(`Missing permission: ${perm}`);
+          });
+        } else {
+          const guild = await client.guilds.fetch(sorted.guildId);
+          let channels = [...guild.channels.cache.values()];
+          if (channels.length === 0) {
+            channels = [...(await guild.channels.fetch())];
+          }
+          if (channels[0]) {
+            permCheckOk = await hasPermission({
+              client,
+              channelId: channels[0].id,
+              permissionName: perm,
+            });
+          }
+        }
+      } catch {
+        permCheckOk = false;
       }
+      if (!permCheckOk)
+        return fail(`Missing permission: ${perm}`);
+
       try {
         const target = sorted.channelId
           ? await client.channels.fetch(sorted.channelId)

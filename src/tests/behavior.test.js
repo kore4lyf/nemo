@@ -75,7 +75,16 @@ function mockClient(overrides = {}) {
       }),
     },
     guilds: {
-      fetch: async () => ({
+      fetch: async (guildId) => ({
+        channels: {
+          cache: { values: () => [] },
+          fetch: async () => [
+            {
+              id: "any-ch",
+              guild: { id: "g-1" },
+            },
+          ],
+        },
         threads: {
           fetchActive: async () => ({
             threads: [{ id: "t-2", name: "guild-thread", memberCount: 2, messageCount: 3 }],
