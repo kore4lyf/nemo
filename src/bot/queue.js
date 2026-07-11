@@ -33,15 +33,12 @@ export function isOnCooldown(userId) {
  * Records that a user just invoked the agent. Call before queuing.
  */
 export function recordInvocation(userId) {
-  lastInvocation.set(userId, Date.now());
-
-  // Periodic cleanup: evict entries older than 2× cooldown
-  if (lastInvocation.size > 100) {
-    const cutoff = Date.now() - USER_COOLDOWN_MS * 2;
-    for (const [id, ts] of lastInvocation) {
-      if (ts < cutoff) lastInvocation.delete(id);
-    }
+  // Evict expired entries on every write (time-based, not size-based)
+  const cutoff = Date.now() - USER_COOLDOWN_MS * 2;
+  for (const [id, ts] of lastInvocation) {
+    if (ts < cutoff) lastInvocation.delete(id);
   }
+  lastInvocation.set(userId, Date.now());
 }
 
 /**

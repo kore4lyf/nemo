@@ -19,14 +19,12 @@ function isDuplicate(messageId) {
 }
 
 function markProcessed(messageId) {
-  processedMessages.set(messageId, Date.now());
-  // Periodic cleanup
-  if (processedMessages.size > 500) {
-    const cutoff = Date.now() - PROCESSED_TTL_MS;
-    for (const [id, ts] of processedMessages) {
-      if (ts < cutoff) processedMessages.delete(id);
-    }
+  // Evict expired entries on every write (time-based, not size-based)
+  const cutoff = Date.now() - PROCESSED_TTL_MS;
+  for (const [id, ts] of processedMessages) {
+    if (ts < cutoff) processedMessages.delete(id);
   }
+  processedMessages.set(messageId, Date.now());
 }
 
 // Error classification — only retry transient failures
