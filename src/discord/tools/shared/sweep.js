@@ -9,9 +9,10 @@ import { hasPermission, getRequiredPermission } from "../shared/permissions.js";
  * @param {object} client - bound Discord client
  * @param {string} channelName - hardcoded channel name (e.g. "milestones")
  * @param {string} guildId - guild to resolve the channel in
+ * @param {string} toolName - tool name for permission lookup (default: "get_milestones")
  * @returns {Promise<{ ok: boolean, error?: string, messages?: array }>}
  */
-export async function sweepChannelByName({ client, channelName, guildId }) {
+export async function sweepChannelByName({ client, channelName, guildId, toolName = "get_milestones" }) {
   try {
     const guild = await client.guilds.fetch(guildId);
     const channel = guild.channels?.cache?.values

@@ -73,6 +73,7 @@ function mockClient(overrides = {}) {
         messages: {
           fetch: async (msgId) => ({
             id: msgId,
+            author: { id: "bot-123", username: "Nemo" },
             pin: async function () {},
             unpin: async function () {},
             delete: async function () {},
@@ -508,7 +509,7 @@ test("all tools: success response has 'success: true' field", async () => {
         isThread: () => false,
         memberCount: 1,
         guild: { id: "g-1", members: { resolve: () => ({ id: "bot-123", permissions: { has: () => true, bitfield: ALL_PERMS } }) } },
-        messages: { fetch: async (msgId) => ({ id: msgId, pin: async () => {}, unpin: async () => {}, delete: async () => {}, edit: async () => {}, react: async () => {} }) },
+        messages: { fetch: async (msgId) => ({ id: msgId, author: { id: "bot-123", username: "Nemo" }, pin: async () => {}, unpin: async () => {}, delete: async () => {}, edit: async () => {}, react: async () => {} }) },
         send: async (opts) => ({ id: "m", content: opts.content }),
         threads: { create: async (opts) => ({ id: "t", name: opts.name, send: async () => ({}) }), fetchActive: async () => ({ threads: [] }) },
       }),

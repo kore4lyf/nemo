@@ -38,6 +38,7 @@ export const milestoneContext = [
         client,
         channelName: "milestones",
         guildId: input.guildId,
+        toolName: "get_milestones",
       });
 
       if (!sweep.ok) {

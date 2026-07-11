@@ -43,6 +43,7 @@ function mockClient(overrides = {}) {
         messages: {
           fetch: async (msgId) => ({
             id: msgId,
+            author: { id: "bot-123", username: "Nemo" },
             pin: async function () {},
             unpin: async function () {},
             delete: async function () {},

@@ -38,6 +38,7 @@ export const introductionContext = [
         client,
         channelName: "introduction",
         guildId: input.guildId,
+        toolName: "get_introduction",
       });
 
       if (!sweep.ok) {
