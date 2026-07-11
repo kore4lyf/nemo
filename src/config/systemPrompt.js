@@ -44,10 +44,14 @@ function readAgentsMd() {
       if (cachedPrompt === null) {
         logger.info("Loaded system prompt from AGENTS.md");
       } else {
-        logger.info("System prompt reloaded — AGENTS.md changed");
+        logger.info("System prompt reloaded - AGENTS.md changed");
       }
       cachedMtime = mtimeMs;
       cachedPrompt = trimmed;
+      return cachedPrompt;
+    }
+    // Editor saved mid-edit (empty content) - keep the previous prompt, don't downgrade.
+    if (cachedPrompt !== null) {
       return cachedPrompt;
     }
     return null;
@@ -62,7 +66,7 @@ function readAgentsMd() {
  * reloads automatically if the file was edited.
  *
  * @returns {string} The system prompt text. If AGENTS.md is missing or
- *   unreadable, returns a minimal fallback so the agent still works —
+ *   unreadable, returns a minimal fallback so the agent still works -
  *   the fallback is logged once at warn level.
  */
 export function getSystemPrompt() {
