@@ -149,6 +149,10 @@ export const messageActions = [
       try {
         const channel = await client.channels.fetch(input.channelId);
         const msg = await channel.messages.fetch(input.messageId);
+        // Authorization: only allow deleting Nemo's own messages
+        if (msg.author?.id !== client.user?.id) {
+          return fail("I can only delete messages I authored. Ask the author to delete it directly.");
+        }
 
         // Confirm before destructive action
         const confirmed = await confirmAction(
@@ -181,6 +185,10 @@ export const messageActions = [
       try {
         const channel = await client.channels.fetch(input.channelId);
         const msg = await channel.messages.fetch(input.messageId);
+        // Authorization: only allow editing Nemo's own messages
+        if (msg.author?.id !== client.user?.id) {
+          return fail("I can only edit messages I authored. Ask the author to edit it directly.");
+        }
 
         // Confirm before editing someone else's message
         const confirmed = await confirmAction(
