@@ -27,6 +27,43 @@ function markProcessed(messageId) {
   processedMessages.set(messageId, Date.now());
 }
 
+// ── Reply chunking ─────────────────────────────────────────────────────
+// Discord caps messages at 2000 chars. Split long answers into chunks.
+const DISCORD_MAX_LENGTH = 2000;
+
+function splitForDiscord(text) {
+  if (!text || text.length <= DISCORD_MAX_LENGTH) return [text];
+
+  const chunks = [];
+  const lines = text.split("\n");
+  let current = "";
+
+  for (const line of lines) {
+    if (current.length + line.length + 1 > DISCORD_MAX_LENGTH) {
+      if (current.length > 0) chunks.push(current);
+      current = line.length > DISCORD_MAX_LENGTH ? line.slice(0, DISCORD_MAX_LENGTH) : line;
+    } else {
+      current = current ? current + "\n" + line : line;
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+async function sendChunkedReply(message, response, reqLog) {
+  const chunks = splitForDiscord(response);
+  try {
+    await message.reply(chunks[0]);
+    for (let i = 1; i < chunks.length; i++) {
+      await message.channel.send(chunks[i]);
+    }
+    return true;
+  } catch (err) {
+    reqLog.warn(`Reply failed: ${err.message}`);
+    return false;
+  }
+}
+
 // Error classification — only retry transient failures
 function isRetryable(err) {
   if (
@@ -90,9 +127,12 @@ export async function onMessage(message) {
   const requestId = randomUUID().slice(0, 8);
   const reqLog = scopedLogger(requestId);
 
-  // Per-user cooldown — silently skip rapid-fire mentions
+  // Per-user cooldown — reply with a nudge instead of silence
   if (isOnCooldown(userId)) {
     reqLog.debug(`Cooldown hit for user ${userId}`);
+    message
+      .reply("I'm still processing your last request — give me a few seconds.")
+      .catch((err) => reqLog.warn("Cooldown nudge failed:", err.message));
     return;
   }
   recordInvocation(userId);
@@ -109,7 +149,7 @@ export async function onMessage(message) {
       if (response?.trim()) {
         try {
           reqLog.info(`Replying: ${response.slice(0, 500)}`);
-          await message.reply(response);
+          await sendChunkedReply(message, response, reqLog);
         } catch (replyErr) {
           reqLog.warn("Failed to send reply:", replyErr.message);
         }
