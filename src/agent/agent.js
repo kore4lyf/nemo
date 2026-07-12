@@ -112,12 +112,18 @@ export async function processWithAgent({ client, message, requestId }) {
         const result = await fn.invoke(call.args);
         messages.push(
           new ToolMessage({
-            content: JSON.stringify(result),
+            content: contentForModel,
             tool_call_id: call.id,
           })
         );
 
         const isError = result && typeof result === "object" && (result.success === false || result.error);
+
+        // ── Truncate tool result before sending to model ─────────────────────────
+        const contentForModel = JSON.stringify(
+          isError ? { success: false, error: result.error || result.message || "unknown" }
+          : truncateResult(result, 1500)
+        );
         const resultSummary = isError
           ? { success: false, error: result.error || result.message || "unknown" }
           : { success: true, summary: truncateResult(result) };
