@@ -23,6 +23,7 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy application source
 COPY package.json package-lock.json ./
 COPY src/ ./src/
+COPY AGENTS.md ./
 
 # Set ownership
 RUN chown -R nemo:nemo /app
